@@ -1,0 +1,59 @@
+import tempfile, unittest
+from datetime import date
+from pathlib import Path
+from core import Store, build_email, duplicate_candidates, hidden_offer, score_offer, validate_public_contact
+from connectors import SireneConnector
+
+class DomainTests(unittest.TestCase):
+    def setUp(self): self.tmp=tempfile.TemporaryDirectory(); self.store=Store(Path(self.tmp.name)/"test.db")
+    def tearDown(self): self.tmp.cleanup()
+    def test_schema_and_profile(self):
+        self.store.upsert_profile({"first_name":"Anne","department":"42"})
+        self.assertEqual(self.store.rows("SELECT first_name FROM profile")[0]["first_name"],"Anne")
+    def test_fixed_explainable_score(self):
+        result=score_offer({"title":"Agent accueil","sector":"culture","description":"relation public équipe service"},{"positions":"agent accueil","sector":"culture"},"relation public équipe service accueil",{"outbound_minutes":35,"return_minutes":40})
+        self.assertEqual(result["total"],100); self.assertEqual(sum(x["maximum"] for x in result["details"]),100)
+    def test_unknown_is_not_negative(self):
+        result=score_offer({"title":"Inconnu"},{"positions":"agent"})
+        self.assertEqual(result["total"],0); self.assertIn("non vérifiée",result["details"][0]["reason"])
+    def test_hidden_rules(self):
+        self.assertIn("Score inférieur à 70",hidden_offer({"title":"Agent"},40))
+        self.assertTrue(any("stage" in x for x in hidden_offer({"title":"Stage communication"},90)))
+    def test_contacts_require_public_professional_source(self):
+        with self.assertRaises(ValueError): validate_public_contact({"email":"personne@gmail.com","source_url":"https://example.org"})
+        self.assertTrue(validate_public_contact({"email":"rh@entreprise.fr","source_url":"https://entreprise.fr/contact"}))
+    def test_one_email_six_lines(self):
+        mail=build_email("Accueil","Anne Dupont","Médiathèque","Votre mission m'intéresse.")
+        self.assertLessEqual(len(mail["body"].splitlines()),6); self.assertIn("Accueil",mail["subject"])
+    def test_duplicates(self):
+        cid=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",)); eid=self.store.execute("INSERT INTO establishments(company_id,name,postcode,city) VALUES(?,?,?,?)",(cid,"Test Loire","42000","Saint-Étienne")); self.store.execute("INSERT INTO applications(establishment_id,position,email_to,created_at) VALUES(?,?,?,?)",(eid,"Agent","rh@test.fr","2026-01-01"))
+        self.assertEqual(len(duplicate_candidates(self.store,eid,"Agent","autre@test.fr")),1)
+    def test_sirene_normalization_active_establishment(self):
+        x=SireneConnector.normalize({"siren":"1","siret":"12","etatAdministratifEtablissement":"A","uniteLegale":{"denominationUniteLegale":"ACME"},"adresseEtablissement":{"codePostalEtablissement":"42000","libelleCommuneEtablissement":"SAINT-ETIENNE"}})
+        self.assertTrue(x["active"]); self.assertEqual(x["postcode"],"42000")
+    def test_connector_requires_token(self):
+        with self.assertRaises(RuntimeError): SireneConnector("").search_loire()
+    def test_maintenance_creates_reminder_and_marks_no_reply(self):
+        self.store.execute("INSERT INTO applications(position,status,sent_at,created_at) VALUES(?,?,?,?)",("Agent","Candidature envoyée","2026-01-01","2026-01-01"))
+        self.assertEqual(self.store.maintain(date(2026,3,5)),1)
+        self.assertEqual(self.store.rows("SELECT status FROM applications")[0]["status"],"Sans réponse")
+        self.assertEqual(len(self.store.rows("SELECT * FROM notifications")),1)
+        self.assertEqual(self.store.maintain(date(2026,3,5)),0)
+    def test_tracking_update_validates_status(self):
+        app=self.store.execute("INSERT INTO applications(position,created_at) VALUES(?,?)",("Agent","2026-09-01"))
+        self.store.update_application(app,{"status":"Candidature envoyée","sent_at":"2026-09-02","next_action":"Relancer"})
+        row=self.store.applications()[0]
+        self.assertEqual(row["status"],"Candidature envoyée"); self.assertEqual(row["next_action"],"Relancer")
+        with self.assertRaisesRegex(ValueError,"Statut inconnu"): self.store.update_application(app,{"status":"Peut-être"})
+    def test_statistics_week_and_month(self):
+        self.store.execute("INSERT INTO applications(position,status,sent_at,response_at,created_at) VALUES(?,?,?,?,?)",("Agent","Refusée","2026-09-10","2026-09-12","2026-09-10"))
+        self.store.execute("INSERT INTO applications(position,status,created_at) VALUES(?,?,?)",("Accueil","Candidature préparée","2026-08-20"))
+        stats=self.store.statistics("month",date(2026,9,13))
+        self.assertEqual(stats["total"],2); self.assertEqual(stats["responses"],1); self.assertEqual(stats["average_delay"],2)
+        self.assertEqual(self.store.statistics("week",date(2026,9,13))["total"],1)
+    def test_announced_reply_date_drives_reminder(self):
+        self.store.execute("INSERT INTO applications(position,status,sent_at,expected_reply,created_at) VALUES(?,?,?,?,?)",("Agent","Candidature envoyée","2026-09-01","2026-09-20","2026-09-01"))
+        self.assertEqual(self.store.maintain(date(2026,9,19)),0)
+        self.assertEqual(self.store.maintain(date(2026,9,20)),1)
+
+if __name__=="__main__": unittest.main()
