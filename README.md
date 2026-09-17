@@ -17,6 +17,8 @@ python app.py
 
 Le connecteur SIRENE est désactivé tant qu'aucune clé API n'est fournie. Il utilise
 exclusivement l'API officielle INSEE, sur action manuelle. Aucun scraping n'est actif.
+Les offres peuvent toujours être ajoutées manuellement dans **Mes offres**, puis notées
+localement et transformées en brouillons de candidature sans aucun envoi automatique.
 Les trajets sont saisis/vérifiés manuellement tant qu'aucun fournisseur officiel de
 calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais pénalisée.
 

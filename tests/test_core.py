@@ -56,4 +56,25 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(self.store.maintain(date(2026,9,19)),0)
         self.assertEqual(self.store.maintain(date(2026,9,20)),1)
 
+    def test_manual_offer_is_scored_and_can_create_one_draft(self):
+        self.store.upsert_profile({"first_name":"Anne","last_name":"Dupont","title":"Agent accueil","summary":"culture"})
+        created=self.store.create_offer({"title":"Agent accueil","company":"Médiathèque Loire","city":"Saint-Étienne","sector":"culture","description":"Accueil du public","source_url":"https://example.org/offre","outbound_minutes":"25","return_minutes":"30"})
+        self.assertGreaterEqual(created["score"]["total"],90)
+        displayed=self.store.dashboard()["offers"][0]
+        self.assertEqual(len(displayed["score_details"]),4); self.assertEqual(displayed["source_url"],"https://example.org/offre")
+        application_id=self.store.apply_to_offer(created["id"])
+        application=self.store.applications()[0]
+        self.assertEqual(application["id"],application_id); self.assertEqual(application["company"],"Médiathèque Loire")
+        with self.assertRaisesRegex(ValueError,"existe déjà"): self.store.apply_to_offer(created["id"])
+
+    def test_manual_offer_validates_required_and_travel_fields(self):
+        with self.assertRaisesRegex(ValueError,"obligatoires"): self.store.create_offer({"title":"Agent"})
+        with self.assertRaisesRegex(ValueError,"deux durées"): self.store.create_offer({"title":"Agent","company":"Test","outbound_minutes":"20"})
+
+    def test_offer_can_be_trashed_and_restored(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})
+        self.store.trash_offer(offer["id"]); self.assertEqual(self.store.dashboard()["offers"],[])
+        self.store.restore_offer(offer["id"]); self.assertEqual(len(self.store.dashboard()["offers"]),1)
+        with self.assertRaisesRegex(ValueError,"absente"): self.store.restore_offer(offer["id"])
+
 if __name__=="__main__": unittest.main()

@@ -20,6 +20,7 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         p=urlparse(self.path)
         if p.path=="/api/dashboard": store.maintain(); return self.send_json(store.dashboard())
+        if p.path=="/api/offers": return self.send_json(store.dashboard()["offers"])
         if p.path=="/api/profile":
             rows=store.rows("SELECT * FROM profile WHERE id=1"); return self.send_json(rows[0] if rows else {})
         if p.path=="/api/companies":
@@ -34,7 +35,8 @@ class Handler(SimpleHTTPRequestHandler):
             rows=store.rows("SELECT id,filename,extracted,verified_json,preferred,created_at FROM resumes ORDER BY id")
             for row in rows: row["verified"]=json.loads(row.pop("verified_json"))
             return self.send_json(rows)
-        if p.path=="/api/trash": return self.send_json(store.rows("SELECT * FROM offers WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC"))
+        if p.path=="/api/trash": return self.send_json(store.rows("""SELECT o.*,c.name company FROM offers o
+            LEFT JOIN companies c ON c.id=o.company_id WHERE o.deleted_at IS NOT NULL ORDER BY o.deleted_at DESC"""))
         if p.path=="/api/applications": return self.send_json({"applications":store.applications(),"statuses":list(STATUSES)})
         if p.path=="/api/statistics":
             period=parse_qs(p.query).get("period",["month"])[0]
@@ -51,6 +53,9 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             d=self.body(); p=urlparse(self.path).path
             if p=="/api/profile": store.upsert_profile(d); return self.send_json({"ok":True})
+            if p=="/api/offers": return self.send_json(store.create_offer(d),201)
+            if p.startswith("/api/offers/") and p.endswith("/apply"):
+                return self.send_json({"id":store.apply_to_offer(int(p.split("/")[3]))},201)
             if p=="/api/resumes": return self.send_json(save_resume(store, DATA/"documents", d.get("filename",""), d.get("content","")),201)
             if p.startswith("/api/resumes/") and p.endswith("/verify"):
                 resume_id=int(p.split("/")[3]); verify_resume(store,resume_id,d.get("sections",{})); return self.send_json({"ok":True})

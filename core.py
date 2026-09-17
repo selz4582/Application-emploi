@@ -1,6 +1,7 @@
 """Domaine et persistance locale de Cap Emploi 42."""
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -60,20 +61,67 @@ class Store:
             db.execute(f"INSERT INTO profile(id,{','.join(allowed)}) VALUES(1,{','.join('?' for _ in allowed)}) ON CONFLICT(id) DO UPDATE SET " + ','.join(f"{k}=excluded.{k}" for k in allowed), vals)
 
     def dashboard(self):
-        offers = self.rows("""SELECT o.*,c.name company,e.name establishment,s.total score,j.outbound_minutes,
-          group_concat(os.source, ', ') sources FROM offers o LEFT JOIN companies c ON c.id=o.company_id
+        offers = self.rows("""SELECT o.*,c.name company,e.name establishment,s.total score,s.details_json,j.outbound_minutes,j.return_minutes,
+          group_concat(os.source, ', ') sources,max(os.url) source_url FROM offers o LEFT JOIN companies c ON c.id=o.company_id
           LEFT JOIN establishments e ON e.id=o.establishment_id LEFT JOIN scores s ON s.offer_id=o.id
           LEFT JOIN journeys j ON j.offer_id=o.id LEFT JOIN offer_sources os ON os.offer_id=o.id
           WHERE o.deleted_at IS NULL GROUP BY o.id ORDER BY COALESCE(o.applied_at,o.published_at) DESC""")
+        for offer in offers:
+            offer["score_details"] = json.loads(offer.pop("details_json") or "[]")
         notes = self.rows("SELECT * FROM notifications WHERE read_at IS NULL ORDER BY due_at")
         return {"offers": offers, "notifications": notes, "statuses": STATUSES}
 
+    def create_offer(self, data: dict) -> dict:
+        """Enregistre une offre saisie par l'utilisateur et son score explicable."""
+        title, company_name = str(data.get("title", "")).strip(), str(data.get("company", "")).strip()
+        if not title or not company_name: raise ValueError("Le poste et l'entreprise sont obligatoires")
+        published_at = str(data.get("published_at", "")).strip() or None
+        if published_at:
+            try: date.fromisoformat(published_at[:10])
+            except ValueError as exc: raise ValueError("La date de publication est invalide") from exc
+        source_url = str(data.get("source_url", "")).strip()
+        if source_url and not source_url.startswith(("http://", "https://")): raise ValueError("Le lien de l'offre doit commencer par http:// ou https://")
+        with self.connect() as db:
+            company = db.execute("SELECT id FROM companies WHERE lower(name)=lower(?) AND active=1 ORDER BY id LIMIT 1", (company_name,)).fetchone()
+            company_id = company["id"] if company else db.execute("INSERT INTO companies(name,source_url,checked_at) VALUES(?,?,?)", (company_name,source_url,now())).lastrowid
+            offer_id = db.execute("""INSERT INTO offers(company_id,title,city,contract,work_time,description,sector,published_at,status)
+                VALUES(?,?,?,?,?,?,?,?,?)""", (company_id,title,str(data.get("city", "")).strip(),str(data.get("contract", "")).strip(),
+                str(data.get("work_time", "")).strip(),str(data.get("description", "")).strip(),str(data.get("sector", "")).strip(),published_at,"À étudier")).lastrowid
+            if source_url: db.execute("INSERT INTO offer_sources(offer_id,source,url,reference) VALUES(?,?,?,?)", (offer_id,"Saisie manuelle",source_url,str(data.get("reference", "")).strip()))
+            journey = None; outbound, returning = data.get("outbound_minutes"), data.get("return_minutes")
+            if outbound not in (None, "") or returning not in (None, ""):
+                try: outbound, returning = int(outbound), int(returning)
+                except (TypeError, ValueError) as exc: raise ValueError("Les deux durées de trajet doivent être renseignées en minutes") from exc
+                if min(outbound, returning) < 0: raise ValueError("Les durées de trajet doivent être positives")
+                journey = {"outbound_minutes":outbound,"return_minutes":returning,"verified":1}
+                db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning) VALUES(?,?,?,?,?)", (offer_id,outbound,returning,1,""))
+            profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
+            resume = db.execute("SELECT extracted FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
+            offer = {"title":title,"sector":str(data.get("sector", "")),"description":str(data.get("description", ""))}
+            result = score_offer(offer,{"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""},resume["extracted"] if resume else "",journey)
+            db.execute("INSERT INTO scores(offer_id,total,details_json) VALUES(?,?,?)", (offer_id,result["total"],json.dumps(result["details"],ensure_ascii=False)))
+        return {"id":offer_id,"score":result}
+
+    def apply_to_offer(self, offer_id: int) -> int:
+        """Crée un brouillon relié à l'offre, sans jamais envoyer de message."""
+        offer = self.rows("SELECT o.*,c.name company FROM offers o JOIN companies c ON c.id=o.company_id WHERE o.id=? AND o.deleted_at IS NULL", (offer_id,))
+        if not offer: raise ValueError("Offre introuvable")
+        if self.rows("SELECT id FROM applications WHERE offer_id=?", (offer_id,)): raise ValueError("Une candidature existe déjà pour cette offre")
+        profile = self.rows("SELECT * FROM profile WHERE id=1")
+        candidate = ((profile[0].get("first_name", "")+" "+profile[0].get("last_name", "")).strip() if profile else "Candidat")
+        draft = build_email(offer[0]["title"],candidate,offer[0]["company"],"")
+        resume = self.rows("SELECT id FROM resumes ORDER BY preferred DESC,id LIMIT 1")
+        return self.execute("""INSERT INTO applications(offer_id,position,resume_id,email_subject,email_body,checklist_json,created_at)
+            VALUES(?,?,?,?,?,?,?)""", (offer_id,offer[0]["title"],resume[0]["id"] if resume else None,draft["subject"],draft["body"],
+            '{"destinataire_verifie": false, "champs_sensibles_vides": true, "validation_humaine": false}',now()))
+
     def applications(self):
         return self.rows("""SELECT a.id,a.position,a.status,a.sent_at,a.expected_reply,a.followup_at,a.next_action,
-          a.created_at,a.email_to,e.name establishment,e.city,c.name company,
+          a.created_at,a.email_to,e.name establishment,COALESCE(e.city,o.city) city,COALESCE(c.name,oc.name) company,
           CASE WHEN a.offer_id IS NULL THEN 'Spontanée' ELSE 'Offre' END application_type
           FROM applications a LEFT JOIN establishments e ON e.id=a.establishment_id
-          LEFT JOIN companies c ON c.id=e.company_id ORDER BY COALESCE(a.sent_at,a.created_at) DESC""")
+          LEFT JOIN companies c ON c.id=e.company_id LEFT JOIN offers o ON o.id=a.offer_id
+          LEFT JOIN companies oc ON oc.id=o.company_id ORDER BY COALESCE(a.sent_at,a.created_at) DESC""")
 
     def update_application(self, application_id: int, values: dict):
         allowed = {"status", "sent_at", "response_at", "expected_reply", "followup_at", "next_action"}
@@ -123,10 +171,14 @@ class Store:
         return created
 
     def trash_offer(self, offer_id: int):
+        if not self.rows("SELECT id FROM offers WHERE id=? AND deleted_at IS NULL", (offer_id,)):
+            raise ValueError("Offre introuvable")
         self.execute("UPDATE offers SET deleted_at=? WHERE id=?", (now(), offer_id))
 
     def restore_offer(self, offer_id: int):
-        self.execute("UPDATE offers SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL", (offer_id,))
+        if not self.rows("SELECT id FROM offers WHERE id=? AND deleted_at IS NOT NULL", (offer_id,)):
+            raise ValueError("Offre absente de la corbeille")
+        self.execute("UPDATE offers SET deleted_at=NULL WHERE id=?", (offer_id,))
 
     def read_notification(self, notification_id: int):
         self.execute("UPDATE notifications SET read_at=? WHERE id=?", (now(), notification_id))
