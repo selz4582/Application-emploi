@@ -26,7 +26,8 @@ calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais p�
 
 Les CV sont copiés dans `data/documents` et leur texte est extrait localement. Deux
 fichiers DOCX ou ODT de 10 Mo maximum sont acceptés. Les informations extraites ne
-sont considérées comme fiables qu'après validation humaine.
+sont considérées comme fiables qu'après validation humaine dans les cinq rubriques
+de l'écran **Mes CV**. Un seul CV peut être choisi par défaut pour les futurs brouillons.
 
 L'écran **Mes CV** permet de créer une archive datée dans `data/backups` et un export
 CSV dans `data/exports`. Une archive contient un instantané cohérent de SQLite, les

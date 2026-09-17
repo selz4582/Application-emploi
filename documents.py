@@ -80,6 +80,15 @@ def verify_resume(store, resume_id: int, sections: dict) -> None:
     store.execute("UPDATE resumes SET verified_json=? WHERE id=?", (json.dumps(normalized, ensure_ascii=False), resume_id))
 
 
+def set_preferred_resume(store, resume_id: int) -> None:
+    """Sélectionne un unique CV par défaut pour les futurs brouillons."""
+    if not store.rows("SELECT id FROM resumes WHERE id=?", (resume_id,)):
+        raise ValueError("CV introuvable")
+    with store.connect() as db:
+        db.execute("UPDATE resumes SET preferred=0")
+        db.execute("UPDATE resumes SET preferred=1 WHERE id=?", (resume_id,))
+
+
 def create_backup(store, data_dir: Path, backup_dir: Path) -> Path:
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")

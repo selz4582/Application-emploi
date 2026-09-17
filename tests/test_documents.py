@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 from core import Store
-from documents import create_backup, export_applications_csv, save_resume, verify_backup, verify_resume
+from documents import create_backup, export_applications_csv, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -45,6 +45,13 @@ class DocumentTests(unittest.TestCase):
         verified = json.loads(self.store.rows("SELECT verified_json FROM resumes")[0]["verified_json"])
         self.assertEqual(verified["competences"], ["Accueil"])
         with self.assertRaises(ValueError): verify_resume(self.store, resume["id"], {"permis": ["B"]})
+
+    def test_one_resume_can_be_selected_as_preferred(self):
+        first=self.add_resume("un.docx"); second=self.add_resume("deux.docx")
+        set_preferred_resume(self.store,first["id"]); set_preferred_resume(self.store,second["id"])
+        rows=self.store.rows("SELECT id,preferred FROM resumes ORDER BY id")
+        self.assertEqual([row["preferred"] for row in rows],[0,1])
+        with self.assertRaisesRegex(ValueError,"introuvable"): set_preferred_resume(self.store,999)
 
     def test_backup_is_unique_complete_and_valid(self):
         self.add_resume()

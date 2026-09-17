@@ -5,7 +5,7 @@ import json, mimetypes, os
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, score_offer, validate_public_contact, build_email, duplicate_candidates, now
 from connectors import SireneConnector
-from documents import create_backup, export_applications_csv, save_resume, verify_resume
+from documents import create_backup, export_applications_csv, save_resume, set_preferred_resume, verify_resume
 
 ROOT=Path(__file__).parent; DATA=ROOT/"data"; store=Store(DATA/"emploi.sqlite3")
 
@@ -59,6 +59,8 @@ class Handler(SimpleHTTPRequestHandler):
             if p=="/api/resumes": return self.send_json(save_resume(store, DATA/"documents", d.get("filename",""), d.get("content","")),201)
             if p.startswith("/api/resumes/") and p.endswith("/verify"):
                 resume_id=int(p.split("/")[3]); verify_resume(store,resume_id,d.get("sections",{})); return self.send_json({"ok":True})
+            if p.startswith("/api/resumes/") and p.endswith("/preferred"):
+                set_preferred_resume(store,int(p.split("/")[3])); return self.send_json({"ok":True})
             if p=="/api/maintenance": return self.send_json({"notifications_created":store.maintain()})
             if p.startswith("/api/applications/"):
                 store.update_application(int(p.split("/")[3]),d); return self.send_json({"ok":True})
