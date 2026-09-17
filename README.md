@@ -21,6 +21,9 @@ Les offres peuvent toujours être ajoutées manuellement dans **Mes offres**, pu
 localement et transformées en brouillons de candidature sans aucun envoi automatique.
 Les trajets sont saisis/vérifiés manuellement tant qu'aucun fournisseur officiel de
 calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais pénalisée.
+Chaque candidature possède un dossier local permettant de relire le message, la lettre,
+le destinataire et le CV. L'application n'envoie aucun courriel : le statut « envoyée »
+ne peut être confirmé qu'après validation explicite des trois contrôles humains.
 
 ## Données et sauvegardes
 

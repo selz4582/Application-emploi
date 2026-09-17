@@ -77,4 +77,15 @@ class DomainTests(unittest.TestCase):
         self.store.restore_offer(offer["id"]); self.assertEqual(len(self.store.dashboard()["offers"]),1)
         with self.assertRaisesRegex(ValueError,"absente"): self.store.restore_offer(offer["id"])
 
+    def test_draft_requires_human_checklist_before_marking_sent(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})
+        application=self.store.apply_to_offer(offer["id"])
+        self.store.update_application_draft(application,{"email_to":"rh@test.fr","email_subject":"Candidature","email_body":"Bonjour","letter":"Lettre","resume_id":None,"checklist":{"destinataire_verifie":True,"champs_sensibles_vides":True,"validation_humaine":False}})
+        with self.assertRaisesRegex(ValueError,"vérifications humaines"): self.store.mark_application_sent(application)
+        detail=self.store.application_detail(application); detail["checklist"]["validation_humaine"]=True
+        self.store.update_application_draft(application,{**{key:detail[key] for key in ("email_to","email_subject","email_body","letter","resume_id")},"checklist":detail["checklist"]})
+        self.store.mark_application_sent(application)
+        sent=self.store.application_detail(application)
+        self.assertEqual(sent["status"],"Candidature envoyée"); self.assertIsNotNone(sent["sent_at"])
+
 if __name__=="__main__": unittest.main()

@@ -37,6 +37,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(rows)
         if p.path=="/api/trash": return self.send_json(store.rows("""SELECT o.*,c.name company FROM offers o
             LEFT JOIN companies c ON c.id=o.company_id WHERE o.deleted_at IS NOT NULL ORDER BY o.deleted_at DESC"""))
+        if p.path.startswith("/api/applications/"):
+            try: return self.send_json(store.application_detail(int(p.path.split("/")[3])))
+            except ValueError as e: return self.send_json({"error":str(e)},404)
         if p.path=="/api/applications": return self.send_json({"applications":store.applications(),"statuses":list(STATUSES)})
         if p.path=="/api/statistics":
             period=parse_qs(p.query).get("period",["month"])[0]
@@ -62,6 +65,10 @@ class Handler(SimpleHTTPRequestHandler):
             if p.startswith("/api/resumes/") and p.endswith("/preferred"):
                 set_preferred_resume(store,int(p.split("/")[3])); return self.send_json({"ok":True})
             if p=="/api/maintenance": return self.send_json({"notifications_created":store.maintain()})
+            if p.startswith("/api/applications/") and p.endswith("/draft"):
+                store.update_application_draft(int(p.split("/")[3]),d); return self.send_json({"ok":True})
+            if p.startswith("/api/applications/") and p.endswith("/sent"):
+                store.mark_application_sent(int(p.split("/")[3])); return self.send_json({"ok":True})
             if p.startswith("/api/applications/"):
                 store.update_application(int(p.split("/")[3]),d); return self.send_json({"ok":True})
             if p.startswith("/api/notifications/") and p.endswith("/read"):

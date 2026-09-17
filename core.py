@@ -123,6 +123,47 @@ class Store:
           LEFT JOIN companies c ON c.id=e.company_id LEFT JOIN offers o ON o.id=a.offer_id
           LEFT JOIN companies oc ON oc.id=o.company_id ORDER BY COALESCE(a.sent_at,a.created_at) DESC""")
 
+    def application_detail(self, application_id: int) -> dict:
+        rows = self.rows("""SELECT a.*,r.filename resume_filename,COALESCE(e.name,c.name) recipient_name
+          FROM applications a LEFT JOIN resumes r ON r.id=a.resume_id
+          LEFT JOIN establishments e ON e.id=a.establishment_id LEFT JOIN offers o ON o.id=a.offer_id
+          LEFT JOIN companies c ON c.id=o.company_id WHERE a.id=?""", (application_id,))
+        if not rows: raise ValueError("Candidature introuvable")
+        detail = rows[0]
+        detail["checklist"] = json.loads(detail.pop("checklist_json") or "{}")
+        return detail
+
+    def update_application_draft(self, application_id: int, values: dict) -> None:
+        """Met à jour le brouillon local sans effectuer aucun envoi."""
+        allowed = {"letter", "email_to", "email_subject", "email_body", "resume_id", "checklist"}
+        if set(values) - allowed: raise ValueError("Champ de brouillon non autorisé")
+        if not self.rows("SELECT id FROM applications WHERE id=?", (application_id,)):
+            raise ValueError("Candidature introuvable")
+        email = str(values.get("email_to", "")).strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ValueError("Adresse électronique invalide")
+        checklist = values.get("checklist", {})
+        checklist_keys = {"destinataire_verifie", "champs_sensibles_vides", "validation_humaine"}
+        if set(checklist) - checklist_keys: raise ValueError("Étape de contrôle inconnue")
+        normalized = {key: bool(checklist.get(key, False)) for key in checklist_keys}
+        resume_id = values.get("resume_id") or None
+        if resume_id is not None and not self.rows("SELECT id FROM resumes WHERE id=?", (resume_id,)):
+            raise ValueError("CV introuvable")
+        with self.connect() as db:
+            db.execute("""UPDATE applications SET letter=?,email_to=?,email_subject=?,email_body=?,resume_id=?,checklist_json=? WHERE id=?""",
+                (str(values.get("letter", "")),email,str(values.get("email_subject", "")),str(values.get("email_body", "")),
+                 resume_id,json.dumps(normalized,ensure_ascii=False),application_id))
+
+    def mark_application_sent(self, application_id: int) -> None:
+        detail = self.application_detail(application_id)
+        if not detail["email_to"]: raise ValueError("Le destinataire doit être renseigné")
+        required = ("destinataire_verifie", "champs_sensibles_vides", "validation_humaine")
+        if not all(detail["checklist"].get(key) for key in required):
+            raise ValueError("Toutes les vérifications humaines doivent être cochées")
+        sent_at = now()
+        self.execute("UPDATE applications SET status='Candidature envoyée',sent_at=?,followup_at=? WHERE id=?",
+            (sent_at,(date.today()+timedelta(days=10)).isoformat(),application_id))
+
     def update_application(self, application_id: int, values: dict):
         allowed = {"status", "sent_at", "response_at", "expected_reply", "followup_at", "next_action"}
         unknown = set(values) - allowed
