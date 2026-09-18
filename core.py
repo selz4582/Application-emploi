@@ -108,6 +108,46 @@ class Store:
             db.execute("INSERT INTO scores(offer_id,total,details_json) VALUES(?,?,?)", (offer_id,result["total"],json.dumps(result["details"],ensure_ascii=False)))
         return {"id":offer_id,"score":result}
 
+    def update_offer(self, offer_id: int, data: dict) -> dict:
+        """Modifie une offre locale et recalcule immédiatement son score."""
+        title, company_name = str(data.get("title", "")).strip(), str(data.get("company", "")).strip()
+        if not title or not company_name: raise ValueError("Le poste et l'entreprise sont obligatoires")
+        published_at = str(data.get("published_at", "")).strip() or None
+        if published_at:
+            try: date.fromisoformat(published_at[:10])
+            except ValueError as exc: raise ValueError("La date de publication est invalide") from exc
+        source_url = str(data.get("source_url", "")).strip()
+        if source_url and not source_url.startswith(("http://", "https://")):
+            raise ValueError("Le lien de l'offre doit commencer par http:// ou https://")
+        outbound, returning = data.get("outbound_minutes"), data.get("return_minutes")
+        if (outbound in (None, "")) != (returning in (None, "")):
+            raise ValueError("Les deux durées de trajet doivent être renseignées en minutes")
+        if outbound not in (None, ""):
+            try: outbound, returning = int(outbound), int(returning)
+            except (TypeError, ValueError) as exc: raise ValueError("Les durées de trajet doivent être des nombres entiers") from exc
+            if min(outbound, returning) < 0: raise ValueError("Les durées de trajet doivent être positives")
+        with self.connect() as db:
+            if not db.execute("SELECT id FROM offers WHERE id=? AND deleted_at IS NULL", (offer_id,)).fetchone():
+                raise ValueError("Offre introuvable")
+            company = db.execute("SELECT id FROM companies WHERE lower(name)=lower(?) AND active=1 ORDER BY id LIMIT 1", (company_name,)).fetchone()
+            company_id = company["id"] if company else db.execute("INSERT INTO companies(name,source_url,checked_at) VALUES(?,?,?)", (company_name,source_url,now())).lastrowid
+            db.execute("""UPDATE offers SET company_id=?,title=?,city=?,contract=?,work_time=?,description=?,sector=?,published_at=? WHERE id=?""",
+                       (company_id,title,str(data.get("city", "")).strip(),str(data.get("contract", "")).strip(),str(data.get("work_time", "")).strip(),str(data.get("description", "")).strip(),str(data.get("sector", "")).strip(),published_at,offer_id))
+            db.execute("DELETE FROM offer_sources WHERE offer_id=?", (offer_id,))
+            if source_url:
+                db.execute("INSERT INTO offer_sources(offer_id,source,url,reference) VALUES(?,?,?,?)", (offer_id,"Saisie manuelle",source_url,str(data.get("reference", "")).strip()))
+            db.execute("DELETE FROM journeys WHERE offer_id=?", (offer_id,))
+            journey = None
+            if outbound not in (None, ""):
+                journey = {"outbound_minutes":outbound,"return_minutes":returning,"verified":1}
+                db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning) VALUES(?,?,?,?,?)", (offer_id,outbound,returning,1,""))
+            profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
+            resume = db.execute("SELECT extracted FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
+            offer = {"title":title,"sector":str(data.get("sector", "")),"description":str(data.get("description", ""))}
+            result = score_offer(offer,{"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""},resume["extracted"] if resume else "",journey)
+            db.execute("""INSERT INTO scores(offer_id,total,details_json) VALUES(?,?,?) ON CONFLICT(offer_id) DO UPDATE SET total=excluded.total,details_json=excluded.details_json""", (offer_id,result["total"],json.dumps(result["details"],ensure_ascii=False)))
+        return {"id":offer_id,"score":result}
+
     def apply_to_offer(self, offer_id: int) -> int:
         """Crée un brouillon relié à l'offre, sans jamais envoyer de message."""
         offer = self.rows("SELECT o.*,c.name company FROM offers o JOIN companies c ON c.id=o.company_id WHERE o.id=? AND o.deleted_at IS NULL", (offer_id,))

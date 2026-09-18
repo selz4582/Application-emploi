@@ -28,6 +28,16 @@ class HttpSmokeTests(unittest.TestCase):
         with urllib.request.urlopen(self.base + path) as response:
             return response.status, response.read(), response.headers.get_content_type()
 
+    def post(self, path, payload):
+        request = urllib.request.Request(
+            self.base + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request) as response:
+            return response.status, json.loads(response.read())
+
     def test_main_page_and_empty_api_routes_are_really_successful(self):
         status, body, content_type = self.get("/")
         self.assertEqual(status, 200); self.assertEqual(content_type, "text/html")
@@ -41,6 +51,18 @@ class HttpSmokeTests(unittest.TestCase):
         status, body, _ = self.get("/api/statistics?period=month")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["total"], 0)
+
+    def test_offer_can_be_created_then_updated_over_http(self):
+        status, created = self.post("/api/offers", {"title": "Agent", "company": "Test"})
+        self.assertEqual(status, 201)
+        status, updated = self.post(
+            f"/api/offers/{created['id']}/update",
+            {"title": "Agent d'accueil", "company": "Test", "contract": "CDI"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["id"], created["id"])
+        _, body, _ = self.get("/api/offers")
+        self.assertEqual(json.loads(body)[0]["contract"], "CDI")
 
 
 if __name__ == "__main__": unittest.main()

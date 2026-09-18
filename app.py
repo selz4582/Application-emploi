@@ -68,6 +68,8 @@ class Handler(SimpleHTTPRequestHandler):
             d=self.body(); p=urlparse(self.path).path
             if p=="/api/profile": store.upsert_profile(d); return self.send_json({"ok":True})
             if p=="/api/offers": return self.send_json(store.create_offer(d),201)
+            if p.startswith("/api/offers/") and p.endswith("/update"):
+                return self.send_json(store.update_offer(int(p.split("/")[3]),d))
             if p.startswith("/api/offers/") and p.endswith("/apply"):
                 return self.send_json({"id":store.apply_to_offer(int(p.split("/")[3]))},201)
             if p=="/api/resumes": return self.send_json(save_resume(store, DATA/"documents", d.get("filename",""), d.get("content","")),201)

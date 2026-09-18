@@ -76,6 +76,24 @@ class DomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"obligatoires"): self.store.create_offer({"title":"Agent"})
         with self.assertRaisesRegex(ValueError,"deux durées"): self.store.create_offer({"title":"Agent","company":"Test","outbound_minutes":"20"})
 
+    def test_offer_can_be_edited_and_score_is_recalculated(self):
+        self.store.upsert_profile({"title":"Agent accueil","summary":"culture"})
+        offer=self.store.create_offer({"title":"Comptable","company":"Ancienne","city":"Roanne"})
+        old_score=offer["score"]["total"]
+        result=self.store.update_offer(offer["id"],{"title":"Agent accueil","company":"Nouvelle","city":"Saint-Étienne","contract":"CDI","sector":"culture","description":"Accueil du public","source_url":"https://example.org/nouvelle","outbound_minutes":"10","return_minutes":"12"})
+        displayed=self.store.dashboard()["offers"][0]
+        self.assertGreater(result["score"]["total"],old_score)
+        self.assertEqual(displayed["company"],"Nouvelle")
+        self.assertEqual(displayed["contract"],"CDI")
+        self.assertEqual(displayed["return_minutes"],12)
+        self.assertEqual(displayed["source_url"],"https://example.org/nouvelle")
+
+    def test_offer_edit_rejects_partial_journey_without_changing_offer(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})
+        with self.assertRaisesRegex(ValueError,"deux durées"):
+            self.store.update_offer(offer["id"],{"title":"Titre modifié","company":"Test","outbound_minutes":"20"})
+        self.assertEqual(self.store.dashboard()["offers"][0]["title"],"Agent")
+
     def test_offer_can_be_trashed_and_restored(self):
         offer=self.store.create_offer({"title":"Agent","company":"Test"})
         self.store.trash_offer(offer["id"]); self.assertEqual(self.store.dashboard()["offers"],[])

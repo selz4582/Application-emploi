@@ -25,6 +25,8 @@ Le connecteur SIRENE est désactivé tant qu'aucune clé API n'est fournie. Il u
 exclusivement l'API officielle INSEE, sur action manuelle. Aucun scraping n'est actif.
 Les offres peuvent toujours être ajoutées manuellement dans **Mes offres**, puis notées
 localement et transformées en brouillons de candidature sans aucun envoi automatique.
+Elles peuvent aussi être corrigées après leur saisie : le score est alors recalculé.
+La liste peut être filtrée par texte, type de contrat et score minimum.
 Les trajets sont saisis/vérifiés manuellement tant qu'aucun fournisseur officiel de
 calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais pénalisée.
 Chaque candidature possède un dossier local permettant de relire le message, la lettre,
