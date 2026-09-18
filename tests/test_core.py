@@ -22,6 +22,11 @@ class DomainTests(unittest.TestCase):
     def test_contacts_require_public_professional_source(self):
         with self.assertRaises(ValueError): validate_public_contact({"email":"personne@gmail.com","source_url":"https://example.org"})
         self.assertTrue(validate_public_contact({"email":"rh@entreprise.fr","source_url":"https://entreprise.fr/contact"}))
+    def test_public_contact_is_attached_to_active_establishment(self):
+        cid=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",)); eid=self.store.execute("INSERT INTO establishments(company_id,name,postcode,city) VALUES(?,?,?,?)",(cid,"Test Loire","42000","Saint-Étienne"))
+        contact=self.store.add_public_contact({"establishment_id":eid,"name":"Accueil RH","role":"Recrutement","email":"RH@Test.fr","source_url":"https://test.fr/contact","confidence":"élevé"})
+        self.assertEqual(self.store.contacts(eid)[0]["id"],contact); self.assertEqual(self.store.contacts(eid)[0]["email"],"rh@test.fr")
+        with self.assertRaisesRegex(ValueError,"existe déjà"): self.store.add_public_contact({"establishment_id":eid,"email":"rh@test.fr","source_url":"https://test.fr/contact"})
     def test_one_email_six_lines(self):
         mail=build_email("Accueil","Anne Dupont","Médiathèque","Votre mission m'intéresse.")
         self.assertLessEqual(len(mail["body"].splitlines()),6); self.assertIn("Accueil",mail["subject"])

@@ -115,6 +115,29 @@ class Store:
             VALUES(?,?,?,?,?,?,?)""", (offer_id,offer[0]["title"],resume[0]["id"] if resume else None,draft["subject"],draft["body"],
             '{"destinataire_verifie": false, "champs_sensibles_vides": true, "validation_humaine": false}',now()))
 
+    def contacts(self, establishment_id: int | None = None) -> list[dict]:
+        sql = """SELECT ct.*,e.name establishment,e.city FROM contacts ct
+                 JOIN establishments e ON e.id=ct.establishment_id WHERE e.active=1"""
+        args = ()
+        if establishment_id is not None:
+            sql += " AND ct.establishment_id=?"; args = (establishment_id,)
+        return self.rows(sql + " ORDER BY e.name,ct.confidence DESC,ct.name", args)
+
+    def add_public_contact(self, data: dict) -> int:
+        validate_public_contact(data)
+        try: establishment_id = int(data.get("establishment_id"))
+        except (TypeError, ValueError) as exc: raise ValueError("Établissement obligatoire") from exc
+        if not self.rows("SELECT id FROM establishments WHERE id=? AND active=1", (establishment_id,)):
+            raise ValueError("Établissement actif introuvable")
+        email = str(data["email"]).strip().lower()
+        if self.rows("SELECT id FROM contacts WHERE establishment_id=? AND lower(email)=?", (establishment_id,email)):
+            raise ValueError("Ce contact existe déjà pour cet établissement")
+        confidence = str(data.get("confidence", "moyen"))
+        if confidence not in {"faible", "moyen", "élevé"}: raise ValueError("Niveau de confiance inconnu")
+        return self.execute("""INSERT INTO contacts(establishment_id,name,role,email,source_url,checked_at,confidence)
+            VALUES(?,?,?,?,?,?,?)""", (establishment_id,str(data.get("name", "")).strip(),str(data.get("role", "")).strip(),email,
+            str(data["source_url"]).strip(),now(),confidence))
+
     def applications(self):
         return self.rows("""SELECT a.id,a.position,a.status,a.sent_at,a.expected_reply,a.followup_at,a.next_action,
           a.created_at,a.email_to,e.name establishment,COALESCE(e.city,o.city) city,COALESCE(c.name,oc.name) company,

@@ -3,7 +3,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 import json, mimetypes, os
 from urllib.parse import urlparse, parse_qs
-from core import STATUSES, Store, score_offer, validate_public_contact, build_email, duplicate_candidates, now
+from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import SireneConnector
 from documents import create_backup, export_applications_csv, save_resume, set_preferred_resume, verify_resume
 
@@ -31,6 +31,11 @@ class Handler(SimpleHTTPRequestHandler):
         if p.path=="/api/establishments":
             q=parse_qs(p.query); cid=q.get("company_id",[""])[0]
             return self.send_json(store.rows("SELECT * FROM establishments WHERE active=1 AND postcode LIKE '42%'"+(" AND company_id=?" if cid else "")+" ORDER BY city,name",(cid,) if cid else ()))
+        if p.path=="/api/contacts":
+            raw=parse_qs(p.query).get("establishment_id",[""])[0]
+            try: establishment_id=int(raw) if raw else None
+            except ValueError: return self.send_json({"error":"Établissement invalide"},400)
+            return self.send_json(store.contacts(establishment_id))
         if p.path=="/api/resumes":
             rows=store.rows("SELECT id,filename,extracted,verified_json,preferred,created_at FROM resumes ORDER BY id")
             for row in rows: row["verified"]=json.loads(row.pop("verified_json"))
@@ -92,7 +97,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"ok":True,"count":len(ids)})
             if p=="/api/sirene/search": return self.send_json(SireneConnector(os.getenv("INSEE_API_TOKEN","")).search_loire(d.get("query",""),d.get("workforce",""),d.get("limit",50)))
             if p=="/api/contacts":
-                validate_public_contact(d); cid=store.execute("INSERT INTO contacts(establishment_id,name,role,email,source_url,checked_at,confidence) VALUES(?,?,?,?,?,?,?)",(d["establishment_id"],d.get("name",""),d.get("role",""),d["email"],d["source_url"],now(),d.get("confidence","moyen"))); return self.send_json({"id":cid},201)
+                return self.send_json({"id":store.add_public_contact(d)},201)
             if p=="/api/spontaneous":
                 position=d.get("position","").strip()
                 if not position: raise ValueError("Un poste précis est obligatoire")

@@ -24,6 +24,8 @@ calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais p�
 Chaque candidature possède un dossier local permettant de relire le message, la lettre,
 le destinataire et le CV. L'application n'envoie aucun courriel : le statut « envoyée »
 ne peut être confirmé qu'après validation explicite des trois contrôles humains.
+Les contacts doivent provenir d'une page publique de l'établissement. Les adresses
+personnelles sont refusées et la source reste enregistrée pour pouvoir être vérifiée.
 
 ## Données et sauvegardes
 
