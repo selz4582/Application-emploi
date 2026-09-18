@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 from core import Store
-from documents import create_backup, export_applications_csv, save_resume, set_preferred_resume, verify_backup, verify_resume
+from documents import create_backup, delete_resume, export_applications_csv, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -52,6 +52,18 @@ class DocumentTests(unittest.TestCase):
         rows=self.store.rows("SELECT id,preferred FROM resumes ORDER BY id")
         self.assertEqual([row["preferred"] for row in rows],[0,1])
         with self.assertRaisesRegex(ValueError,"introuvable"): set_preferred_resume(self.store,999)
+
+    def test_unused_resume_can_be_deleted_and_preference_moves(self):
+        first=self.add_resume("un.docx"); second=self.add_resume("deux.docx")
+        self.assertEqual(self.store.rows("SELECT preferred FROM resumes WHERE id=?",(first["id"],))[0]["preferred"],1)
+        delete_resume(self.store,self.data/"documents",first["id"])
+        remaining=self.store.rows("SELECT * FROM resumes")[0]
+        self.assertEqual(remaining["id"],second["id"]); self.assertEqual(remaining["preferred"],1)
+        self.assertFalse(any((self.data/"documents").glob("*un.docx")))
+
+    def test_resume_used_by_application_cannot_be_deleted(self):
+        resume=self.add_resume(); self.store.execute("INSERT INTO applications(position,resume_id,created_at) VALUES(?,?,?)",("Agent",resume["id"],"2026-09-18"))
+        with self.assertRaisesRegex(ValueError,"utilisé par une candidature"): delete_resume(self.store,self.data/"documents",resume["id"])
 
     def test_backup_is_unique_complete_and_valid(self):
         self.add_resume()

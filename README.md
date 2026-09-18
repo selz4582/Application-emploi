@@ -33,6 +33,8 @@ Les CV sont copiés dans `data/documents` et leur texte est extrait localement. 
 fichiers DOCX ou ODT de 10 Mo maximum sont acceptés. Les informations extraites ne
 sont considérées comme fiables qu'après validation humaine dans les cinq rubriques
 de l'écran **Mes CV**. Un seul CV peut être choisi par défaut pour les futurs brouillons.
+Un CV inutilisé peut être supprimé puis remplacé ; lorsqu'il appartient déjà à un dossier
+de candidature, l'application demande d'abord de sélectionner un autre CV dans ce dossier.
 
 L'écran **Mes CV** permet de créer une archive datée dans `data/backups` et un export
 CSV dans `data/exports`. Une archive contient un instantané cohérent de SQLite, les

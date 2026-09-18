@@ -64,8 +64,8 @@ def save_resume(store, documents_dir: Path, filename: str, encoded: str) -> dict
     destination = documents_dir / f"cv-{len(existing) + 1}-{filename}"
     destination.write_bytes(content)
     resume_id = store.execute(
-        "INSERT INTO resumes(filename,path,extracted,verified_json,created_at) VALUES(?,?,?,?,?)",
-        (filename, str(destination), text, json.dumps({"experiences": [], "competences": [], "diplomes": [], "formations": [], "langues": []}), _now()),
+        "INSERT INTO resumes(filename,path,extracted,verified_json,preferred,created_at) VALUES(?,?,?,?,?,?)",
+        (filename, str(destination), text, json.dumps({"experiences": [], "competences": [], "diplomes": [], "formations": [], "langues": []}), int(not existing), _now()),
     )
     return {"id": resume_id, "filename": filename, "extracted": text, "verified": _empty_verification()}
 
@@ -87,6 +87,25 @@ def set_preferred_resume(store, resume_id: int) -> None:
     with store.connect() as db:
         db.execute("UPDATE resumes SET preferred=0")
         db.execute("UPDATE resumes SET preferred=1 WHERE id=?", (resume_id,))
+
+
+def delete_resume(store, documents_dir: Path, resume_id: int) -> None:
+    """Supprime un CV inutilisé et choisit un nouveau CV par défaut si nécessaire."""
+    rows = store.rows("SELECT * FROM resumes WHERE id=?", (resume_id,))
+    if not rows: raise ValueError("CV introuvable")
+    if store.rows("SELECT id FROM applications WHERE resume_id=? LIMIT 1", (resume_id,)):
+        raise ValueError("Ce CV est utilisé par une candidature. Choisissez d'abord un autre CV dans son dossier")
+    documents_root = documents_dir.resolve()
+    path = Path(rows[0]["path"]).resolve()
+    try: path.relative_to(documents_root)
+    except ValueError as exc: raise ValueError("Chemin du CV invalide") from exc
+    was_preferred = bool(rows[0]["preferred"])
+    with store.connect() as db:
+        db.execute("DELETE FROM resumes WHERE id=?", (resume_id,))
+        if was_preferred:
+            replacement = db.execute("SELECT id FROM resumes ORDER BY id LIMIT 1").fetchone()
+            if replacement: db.execute("UPDATE resumes SET preferred=1 WHERE id=?", (replacement["id"],))
+        path.unlink(missing_ok=True)
 
 
 def create_backup(store, data_dir: Path, backup_dir: Path) -> Path:
