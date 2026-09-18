@@ -5,8 +5,14 @@ Elle fonctionne avec Python 3 et SQLite, sans service cloud ni écran de connexi
 
 ## Démarrage (Windows 11)
 
-Double-cliquer sur `demarrer.bat`, puis ouvrir <http://127.0.0.1:8765>. Les données sont
-créées dans `data/emploi.sqlite3`. Le serveur n'écoute que l'ordinateur local.
+Double-cliquer sur `demarrer.bat` : le serveur démarre d'abord, puis le navigateur s'ouvre
+automatiquement sur <http://127.0.0.1:8765>. Les données sont créées dans
+`data/emploi.sqlite3`. Le serveur n'écoute que l'ordinateur local.
+
+Un code HTTP `200` signifie **succès**, et non erreur. Les requêtes réussies ne sont plus
+affichées dans la console afin de ne pas inquiéter l'utilisateur ; seules les véritables
+erreurs HTTP (`400`, `404`, `500`…) y apparaissent. Si le port est déjà utilisé, fermez
+l'ancienne fenêtre Cap Emploi avant de relancer `demarrer.bat`.
 
 ## Développement
 

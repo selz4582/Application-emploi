@@ -1,7 +1,7 @@
 """Serveur HTTP local sans dépendance tierce."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-import json, mimetypes, os
+import json, mimetypes, os, threading, webbrowser
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import SireneConnector
@@ -10,6 +10,12 @@ from documents import create_backup, delete_resume, export_applications_csv, sav
 ROOT=Path(__file__).parent; DATA=ROOT/"data"; store=Store(DATA/"emploi.sqlite3")
 
 class Handler(SimpleHTTPRequestHandler):
+    def log_request(self, code="-", size="-"):
+        """N'affiche que les vraies erreurs HTTP, pas les réponses 200 normales."""
+        try: status = int(code)
+        except (TypeError, ValueError): status = 0
+        if status >= 400: super().log_request(code, size)
+
     def send_json(self,obj,status=200):
         body=json.dumps(obj,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def body(self):
@@ -116,6 +122,24 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError,RuntimeError) as e: return self.send_json({"error":str(e)},400)
         except Exception as e: return self.send_json({"error":"Erreur locale : "+str(e)},500)
 
+def run_server(port=8765, open_browser=True):
+    url=f"http://127.0.0.1:{port}"
+    try: server=ThreadingHTTPServer(("127.0.0.1",port),Handler)
+    except OSError as exc:
+        raise RuntimeError(f"Impossible de démarrer sur le port {port}. Fermez l'autre fenêtre Cap Emploi puis réessayez.") from exc
+    print("="*58)
+    print(" Cap Emploi 42 est démarré correctement")
+    print(f" Ouvrez : {url}")
+    print(" Les codes HTTP 200 signifient que tout fonctionne.")
+    print(" Fermez cette fenêtre ou appuyez sur Ctrl+C pour arrêter.")
+    print("="*58,flush=True)
+    if open_browser: threading.Timer(.6,lambda:webbrowser.open(url)).start()
+    try: server.serve_forever()
+    except KeyboardInterrupt: print("\nCap Emploi 42 arrêté.")
+    finally: server.server_close()
+
 if __name__=="__main__":
-    print("Cap Emploi 42 : http://127.0.0.1:8765")
-    ThreadingHTTPServer(("127.0.0.1",8765),Handler).serve_forever()
+    try: run_server()
+    except RuntimeError as exc:
+        print(f"\nERREUR : {exc}")
+        raise SystemExit(1)

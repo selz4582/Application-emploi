@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS learnings(id INTEGER PRIMARY KEY, kind TEXT NOT NULL,
 def now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
+class ClosingConnection(sqlite3.Connection):
+    """Transaction SQLite qui ferme aussi réellement le fichier en sortant du with."""
+    def __exit__(self, exc_type, exc_value, traceback):
+        try: return super().__exit__(exc_type, exc_value, traceback)
+        finally: self.close()
+
 class Store:
     def __init__(self, path: str | Path):
         self.path = str(path)
@@ -42,7 +48,7 @@ class Store:
                 if name not in columns: db.execute(f"ALTER TABLE applications ADD COLUMN {name} {definition}")
 
     def connect(self):
-        db = sqlite3.connect(self.path)
+        db = sqlite3.connect(self.path, factory=ClosingConnection)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         return db

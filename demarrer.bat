@@ -1,6 +1,13 @@
 @echo off
+title Cap Emploi 42
 cd /d "%~dp0"
-start "Cap Emploi 42" http://127.0.0.1:8765
-py -3 app.py
+where py >nul 2>nul
+if %errorlevel%==0 (
+  py -3 app.py
+) else (
+  python app.py
+)
+if %errorlevel%==0 exit /b 0
+echo.
+echo Le demarrage a echoue. Verifiez que Python 3 est installe.
 pause
-
