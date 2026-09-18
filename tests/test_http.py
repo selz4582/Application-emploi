@@ -64,5 +64,14 @@ class HttpSmokeTests(unittest.TestCase):
         _, body, _ = self.get("/api/offers")
         self.assertEqual(json.loads(body)[0]["contract"], "CDI")
 
+    def test_profile_update_recalculates_existing_offer_scores(self):
+        _, created = self.post("/api/offers", {"title": "Agent accueil", "company": "Test"})
+        status, result = self.post("/api/profile", {"title": "Agent accueil"})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["scores_recalculated"], 1)
+        _, body, _ = self.get("/api/offers")
+        self.assertEqual(json.loads(body)[0]["id"], created["id"])
+        self.assertEqual(json.loads(body)[0]["score"], 50)
+
 
 if __name__ == "__main__": unittest.main()

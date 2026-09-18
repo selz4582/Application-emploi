@@ -66,19 +66,21 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         try:
             d=self.body(); p=urlparse(self.path).path
-            if p=="/api/profile": store.upsert_profile(d); return self.send_json({"ok":True})
+            if p=="/api/profile": store.upsert_profile(d); return self.send_json({"ok":True,"scores_recalculated":store.recalculate_offer_scores()})
             if p=="/api/offers": return self.send_json(store.create_offer(d),201)
+            if p=="/api/offers/recalculate": return self.send_json({"count":store.recalculate_offer_scores()})
             if p.startswith("/api/offers/") and p.endswith("/update"):
                 return self.send_json(store.update_offer(int(p.split("/")[3]),d))
             if p.startswith("/api/offers/") and p.endswith("/apply"):
                 return self.send_json({"id":store.apply_to_offer(int(p.split("/")[3]))},201)
-            if p=="/api/resumes": return self.send_json(save_resume(store, DATA/"documents", d.get("filename",""), d.get("content","")),201)
+            if p=="/api/resumes":
+                result=save_resume(store, DATA/"documents", d.get("filename",""), d.get("content","")); store.recalculate_offer_scores(); return self.send_json(result,201)
             if p.startswith("/api/resumes/") and p.endswith("/verify"):
-                resume_id=int(p.split("/")[3]); verify_resume(store,resume_id,d.get("sections",{})); return self.send_json({"ok":True})
+                resume_id=int(p.split("/")[3]); verify_resume(store,resume_id,d.get("sections",{})); return self.send_json({"ok":True,"scores_recalculated":store.recalculate_offer_scores()})
             if p.startswith("/api/resumes/") and p.endswith("/preferred"):
-                set_preferred_resume(store,int(p.split("/")[3])); return self.send_json({"ok":True})
+                set_preferred_resume(store,int(p.split("/")[3])); return self.send_json({"ok":True,"scores_recalculated":store.recalculate_offer_scores()})
             if p.startswith("/api/resumes/") and p.endswith("/delete"):
-                delete_resume(store,DATA/"documents",int(p.split("/")[3])); return self.send_json({"ok":True})
+                delete_resume(store,DATA/"documents",int(p.split("/")[3])); return self.send_json({"ok":True,"scores_recalculated":store.recalculate_offer_scores()})
             if p=="/api/maintenance": return self.send_json({"notifications_created":store.maintain()})
             if p.startswith("/api/applications/") and p.endswith("/draft"):
                 store.update_application_draft(int(p.split("/")[3]),d); return self.send_json({"ok":True})

@@ -1,4 +1,4 @@
-import tempfile, unittest
+import json, tempfile, unittest
 from datetime import date
 from pathlib import Path
 from core import Store, build_email, duplicate_candidates, hidden_offer, score_offer, validate_public_contact
@@ -93,6 +93,23 @@ class DomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"deux durées"):
             self.store.update_offer(offer["id"],{"title":"Titre modifié","company":"Test","outbound_minutes":"20"})
         self.assertEqual(self.store.dashboard()["offers"][0]["title"],"Agent")
+
+    def test_scores_can_be_recalculated_after_profile_and_verified_cv_change(self):
+        offer=self.store.create_offer({"title":"Agent accueil","company":"Test","description":"relation usagers"})
+        self.assertEqual(offer["score"]["total"],0)
+        self.store.upsert_profile({"title":"Agent accueil"})
+        self.store.execute("""INSERT INTO resumes(filename,path,extracted,verified_json,preferred,created_at)
+                           VALUES(?,?,?,?,?,?)""", ("cv.docx","cv.docx","texte brut sans validation",json.dumps({"competences":["relation usagers"]}),1,"2026-09-18"))
+        self.assertEqual(self.store.recalculate_offer_scores(),1)
+        score=self.store.dashboard()["offers"][0]
+        self.assertEqual(score["score"],54)
+        self.assertEqual(score["score_details"][3]["points"],4)
+
+    def test_unverified_resume_extraction_is_not_used_for_scoring(self):
+        self.store.execute("""INSERT INTO resumes(filename,path,extracted,verified_json,preferred,created_at)
+                           VALUES(?,?,?,?,?,?)""", ("cv.docx","cv.docx","accueil relation usagers","{}",1,"2026-09-18"))
+        offer=self.store.create_offer({"title":"Accueil","company":"Test","description":"relation usagers"})
+        self.assertEqual(offer["score"]["details"][3]["points"],0)
 
     def test_offer_can_be_trashed_and_restored(self):
         offer=self.store.create_offer({"title":"Agent","company":"Test"})

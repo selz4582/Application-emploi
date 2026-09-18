@@ -102,9 +102,9 @@ class Store:
                 journey = {"outbound_minutes":outbound,"return_minutes":returning,"verified":1}
                 db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning) VALUES(?,?,?,?,?)", (offer_id,outbound,returning,1,""))
             profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
-            resume = db.execute("SELECT extracted FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
+            resume = db.execute("SELECT extracted,verified_json FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
             offer = {"title":title,"sector":str(data.get("sector", "")),"description":str(data.get("description", ""))}
-            result = score_offer(offer,{"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""},resume["extracted"] if resume else "",journey)
+            result = score_offer(offer,{"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""},resume_scoring_text(resume),journey)
             db.execute("INSERT INTO scores(offer_id,total,details_json) VALUES(?,?,?)", (offer_id,result["total"],json.dumps(result["details"],ensure_ascii=False)))
         return {"id":offer_id,"score":result}
 
@@ -142,11 +142,29 @@ class Store:
                 journey = {"outbound_minutes":outbound,"return_minutes":returning,"verified":1}
                 db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning) VALUES(?,?,?,?,?)", (offer_id,outbound,returning,1,""))
             profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
-            resume = db.execute("SELECT extracted FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
+            resume = db.execute("SELECT extracted,verified_json FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
             offer = {"title":title,"sector":str(data.get("sector", "")),"description":str(data.get("description", ""))}
-            result = score_offer(offer,{"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""},resume["extracted"] if resume else "",journey)
+            result = score_offer(offer,{"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""},resume_scoring_text(resume),journey)
             db.execute("""INSERT INTO scores(offer_id,total,details_json) VALUES(?,?,?) ON CONFLICT(offer_id) DO UPDATE SET total=excluded.total,details_json=excluded.details_json""", (offer_id,result["total"],json.dumps(result["details"],ensure_ascii=False)))
         return {"id":offer_id,"score":result}
+
+    def recalculate_offer_scores(self) -> int:
+        """Recalcule toutes les offres actives après un changement de profil ou de CV."""
+        with self.connect() as db:
+            profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
+            resume = db.execute("SELECT extracted,verified_json FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
+            offers = db.execute("""SELECT o.*,j.outbound_minutes,j.return_minutes,j.verified
+                                   FROM offers o LEFT JOIN journeys j ON j.offer_id=o.id
+                                   WHERE o.deleted_at IS NULL""").fetchall()
+            criteria = {"positions":profile["title"] if profile else "","sector":profile["summary"] if profile else ""}
+            cv_text = resume_scoring_text(resume)
+            for offer in offers:
+                journey = dict(offer) if offer["outbound_minutes"] is not None or offer["return_minutes"] is not None else None
+                result = score_offer(dict(offer),criteria,cv_text,journey)
+                db.execute("""INSERT INTO scores(offer_id,total,details_json) VALUES(?,?,?)
+                           ON CONFLICT(offer_id) DO UPDATE SET total=excluded.total,details_json=excluded.details_json""",
+                           (offer["id"],result["total"],json.dumps(result["details"],ensure_ascii=False)))
+        return len(offers)
 
     def apply_to_offer(self, offer_id: int) -> int:
         """Crée un brouillon relié à l'offre, sans jamais envoyer de message."""
@@ -298,6 +316,13 @@ class Store:
 
 def terms(text: str) -> set[str]:
     return {x for x in re.findall(r"[a-zà-ÿ0-9+#.]{2,}", text.lower())}
+
+def resume_scoring_text(resume) -> str:
+    """N'utilise que les éléments de CV relus; l'extraction brute reste informative."""
+    if not resume: return ""
+    try: verified = json.loads(resume["verified_json"] or "{}")
+    except (json.JSONDecodeError, TypeError): return ""
+    return " ".join(str(item) for values in verified.values() if isinstance(values, list) for item in values)
 
 def score_offer(offer: dict, criteria: dict, cv_text: str = "", journey: dict | None = None):
     """Score explicable. Une donnée inconnue produit 0 point, jamais un malus."""

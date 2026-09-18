@@ -27,6 +27,9 @@ Les offres peuvent toujours être ajoutées manuellement dans **Mes offres**, pu
 localement et transformées en brouillons de candidature sans aucun envoi automatique.
 Elles peuvent aussi être corrigées après leur saisie : le score est alors recalculé.
 La liste peut être filtrée par texte, type de contrat et score minimum.
+Les scores sont également actualisés après une modification du profil ou du CV par
+défaut. Seules les rubriques de CV relues dans l'écran **Mes CV** participent au score ;
+le texte extrait automatiquement n'est jamais considéré comme une donnée vérifiée.
 Les trajets sont saisis/vérifiés manuellement tant qu'aucun fournisseur officiel de
 calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais pénalisée.
 Chaque candidature possède un dossier local permettant de relire le message, la lettre,
