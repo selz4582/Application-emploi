@@ -1,4 +1,4 @@
-import tempfile, unittest
+import json, tempfile, unittest
 from datetime import date
 from pathlib import Path
 from core import Store, build_email, duplicate_candidates, hidden_offer, score_offer, validate_public_contact
@@ -22,6 +22,20 @@ class DomainTests(unittest.TestCase):
     def test_contacts_require_public_professional_source(self):
         with self.assertRaises(ValueError): validate_public_contact({"email":"personne@gmail.com","source_url":"https://example.org"})
         self.assertTrue(validate_public_contact({"email":"rh@entreprise.fr","source_url":"https://entreprise.fr/contact"}))
+    def test_public_contact_is_attached_to_active_establishment(self):
+        cid=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",)); eid=self.store.execute("INSERT INTO establishments(company_id,name,postcode,city) VALUES(?,?,?,?)",(cid,"Test Loire","42000","Saint-Étienne"))
+        contact=self.store.add_public_contact({"establishment_id":eid,"name":"Accueil RH","role":"Recrutement","email":"RH@Test.fr","source_url":"https://test.fr/contact","confidence":"élevé"})
+        self.assertEqual(self.store.contacts(eid)[0]["id"],contact); self.assertEqual(self.store.contacts(eid)[0]["email"],"rh@test.fr")
+        with self.assertRaisesRegex(ValueError,"existe déjà"): self.store.add_public_contact({"establishment_id":eid,"email":"rh@test.fr","source_url":"https://test.fr/contact"})
+
+    def test_public_contact_can_be_updated_disabled_and_deleted(self):
+        cid=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",)); eid=self.store.execute("INSERT INTO establishments(company_id,name,postcode) VALUES(?,?,?)",(cid,"Test Loire","42000"))
+        contact=self.store.add_public_contact({"establishment_id":eid,"name":"Accueil","email":"rh@test.fr","source_url":"https://test.fr/contact"})
+        self.store.update_public_contact(contact,{"establishment_id":eid,"name":"RH","role":"Recrutement","email":"emploi@test.fr","source_url":"https://test.fr/emploi","confidence":"élevé"})
+        self.assertEqual(self.store.contacts()[0]["email"],"emploi@test.fr")
+        self.store.set_contact_active(contact,False); self.assertEqual(self.store.contacts(),[])
+        self.assertEqual(len(self.store.contacts(include_inactive=True)),1)
+        self.store.delete_contact(contact); self.assertEqual(self.store.contacts(include_inactive=True),[])
     def test_one_email_six_lines(self):
         mail=build_email("Accueil","Anne Dupont","Médiathèque","Votre mission m'intéresse.")
         self.assertLessEqual(len(mail["body"].splitlines()),6); self.assertIn("Accueil",mail["subject"])
@@ -55,5 +69,82 @@ class DomainTests(unittest.TestCase):
         self.store.execute("INSERT INTO applications(position,status,sent_at,expected_reply,created_at) VALUES(?,?,?,?,?)",("Agent","Candidature envoyée","2026-09-01","2026-09-20","2026-09-01"))
         self.assertEqual(self.store.maintain(date(2026,9,19)),0)
         self.assertEqual(self.store.maintain(date(2026,9,20)),1)
+
+    def test_manual_offer_is_scored_and_can_create_one_draft(self):
+        self.store.upsert_profile({"first_name":"Anne","last_name":"Dupont","title":"Agent accueil","summary":"culture"})
+        created=self.store.create_offer({"title":"Agent accueil","company":"Médiathèque Loire","city":"Saint-Étienne","sector":"culture","description":"Accueil du public","source_url":"https://example.org/offre","outbound_minutes":"25","return_minutes":"30"})
+        self.assertGreaterEqual(created["score"]["total"],90)
+        displayed=self.store.dashboard()["offers"][0]
+        self.assertEqual(len(displayed["score_details"]),4); self.assertEqual(displayed["source_url"],"https://example.org/offre")
+        application_id=self.store.apply_to_offer(created["id"])
+        application=self.store.applications()[0]
+        self.assertEqual(application["id"],application_id); self.assertEqual(application["company"],"Médiathèque Loire")
+        with self.assertRaisesRegex(ValueError,"existe déjà"): self.store.apply_to_offer(created["id"])
+
+    def test_manual_offer_validates_required_and_travel_fields(self):
+        with self.assertRaisesRegex(ValueError,"obligatoires"): self.store.create_offer({"title":"Agent"})
+        with self.assertRaisesRegex(ValueError,"deux durées"): self.store.create_offer({"title":"Agent","company":"Test","outbound_minutes":"20"})
+
+    def test_manual_journey_keeps_verification_date_and_source(self):
+        self.store.create_offer({"title":"Agent","company":"Test","outbound_minutes":"20","return_minutes":"25"})
+        offer=self.store.dashboard()["offers"][0]
+        self.assertEqual(offer["journey_source"],"Saisie manuelle")
+        self.assertTrue(offer["journey_checked_at"])
+
+    def test_profile_and_offer_fields_have_length_limits(self):
+        with self.assertRaisesRegex(ValueError,"200 caractères"): self.store.create_offer({"title":"x"*201,"company":"Test"})
+        with self.assertRaisesRegex(ValueError,"80 caractères"): self.store.upsert_profile({"first_name":"x"*81})
+
+    def test_offer_can_be_edited_and_score_is_recalculated(self):
+        self.store.upsert_profile({"title":"Agent accueil","summary":"culture"})
+        offer=self.store.create_offer({"title":"Comptable","company":"Ancienne","city":"Roanne"})
+        old_score=offer["score"]["total"]
+        result=self.store.update_offer(offer["id"],{"title":"Agent accueil","company":"Nouvelle","city":"Saint-Étienne","contract":"CDI","sector":"culture","description":"Accueil du public","source_url":"https://example.org/nouvelle","outbound_minutes":"10","return_minutes":"12"})
+        displayed=self.store.dashboard()["offers"][0]
+        self.assertGreater(result["score"]["total"],old_score)
+        self.assertEqual(displayed["company"],"Nouvelle")
+        self.assertEqual(displayed["contract"],"CDI")
+        self.assertEqual(displayed["return_minutes"],12)
+        self.assertEqual(displayed["source_url"],"https://example.org/nouvelle")
+
+    def test_offer_edit_rejects_partial_journey_without_changing_offer(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})
+        with self.assertRaisesRegex(ValueError,"deux durées"):
+            self.store.update_offer(offer["id"],{"title":"Titre modifié","company":"Test","outbound_minutes":"20"})
+        self.assertEqual(self.store.dashboard()["offers"][0]["title"],"Agent")
+
+    def test_scores_can_be_recalculated_after_profile_and_verified_cv_change(self):
+        offer=self.store.create_offer({"title":"Agent accueil","company":"Test","description":"relation usagers"})
+        self.assertEqual(offer["score"]["total"],0)
+        self.store.upsert_profile({"title":"Agent accueil"})
+        self.store.execute("""INSERT INTO resumes(filename,path,extracted,verified_json,preferred,created_at)
+                           VALUES(?,?,?,?,?,?)""", ("cv.docx","cv.docx","texte brut sans validation",json.dumps({"competences":["relation usagers"]}),1,"2026-09-18"))
+        self.assertEqual(self.store.recalculate_offer_scores(),1)
+        score=self.store.dashboard()["offers"][0]
+        self.assertEqual(score["score"],54)
+        self.assertEqual(score["score_details"][3]["points"],4)
+
+    def test_unverified_resume_extraction_is_not_used_for_scoring(self):
+        self.store.execute("""INSERT INTO resumes(filename,path,extracted,verified_json,preferred,created_at)
+                           VALUES(?,?,?,?,?,?)""", ("cv.docx","cv.docx","accueil relation usagers","{}",1,"2026-09-18"))
+        offer=self.store.create_offer({"title":"Accueil","company":"Test","description":"relation usagers"})
+        self.assertEqual(offer["score"]["details"][3]["points"],0)
+
+    def test_offer_can_be_trashed_and_restored(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})
+        self.store.trash_offer(offer["id"]); self.assertEqual(self.store.dashboard()["offers"],[])
+        self.store.restore_offer(offer["id"]); self.assertEqual(len(self.store.dashboard()["offers"]),1)
+        with self.assertRaisesRegex(ValueError,"absente"): self.store.restore_offer(offer["id"])
+
+    def test_draft_requires_human_checklist_before_marking_sent(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})
+        application=self.store.apply_to_offer(offer["id"])
+        self.store.update_application_draft(application,{"email_to":"rh@test.fr","email_subject":"Candidature","email_body":"Bonjour","letter":"Lettre","resume_id":None,"checklist":{"destinataire_verifie":True,"champs_sensibles_vides":True,"validation_humaine":False}})
+        with self.assertRaisesRegex(ValueError,"vérifications humaines"): self.store.mark_application_sent(application)
+        detail=self.store.application_detail(application); detail["checklist"]["validation_humaine"]=True
+        self.store.update_application_draft(application,{**{key:detail[key] for key in ("email_to","email_subject","email_body","letter","resume_id")},"checklist":detail["checklist"]})
+        self.store.mark_application_sent(application)
+        sent=self.store.application_detail(application)
+        self.assertEqual(sent["status"],"Candidature envoyée"); self.assertIsNotNone(sent["sent_at"])
 
 if __name__=="__main__": unittest.main()

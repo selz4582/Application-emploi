@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import sqlite3
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from xml.etree import ElementTree
 
 ALLOWED_RESUME_EXTENSIONS = {".docx", ".odt"}
 MAX_RESUME_BYTES = 10 * 1024 * 1024
+MAX_BACKUP_BYTES = 30 * 1024 * 1024
 
 
 def safe_filename(name: str) -> str:
@@ -64,8 +66,8 @@ def save_resume(store, documents_dir: Path, filename: str, encoded: str) -> dict
     destination = documents_dir / f"cv-{len(existing) + 1}-{filename}"
     destination.write_bytes(content)
     resume_id = store.execute(
-        "INSERT INTO resumes(filename,path,extracted,verified_json,created_at) VALUES(?,?,?,?,?)",
-        (filename, str(destination), text, json.dumps({"experiences": [], "competences": [], "diplomes": [], "formations": [], "langues": []}), _now()),
+        "INSERT INTO resumes(filename,path,extracted,verified_json,preferred,created_at) VALUES(?,?,?,?,?,?)",
+        (filename, str(destination), text, json.dumps({"experiences": [], "competences": [], "diplomes": [], "formations": [], "langues": []}), int(not existing), _now()),
     )
     return {"id": resume_id, "filename": filename, "extracted": text, "verified": _empty_verification()}
 
@@ -80,10 +82,38 @@ def verify_resume(store, resume_id: int, sections: dict) -> None:
     store.execute("UPDATE resumes SET verified_json=? WHERE id=?", (json.dumps(normalized, ensure_ascii=False), resume_id))
 
 
+def set_preferred_resume(store, resume_id: int) -> None:
+    """Sélectionne un unique CV par défaut pour les futurs brouillons."""
+    if not store.rows("SELECT id FROM resumes WHERE id=?", (resume_id,)):
+        raise ValueError("CV introuvable")
+    with store.connect() as db:
+        db.execute("UPDATE resumes SET preferred=0")
+        db.execute("UPDATE resumes SET preferred=1 WHERE id=?", (resume_id,))
+
+
+def delete_resume(store, documents_dir: Path, resume_id: int) -> None:
+    """Supprime un CV inutilisé et choisit un nouveau CV par défaut si nécessaire."""
+    rows = store.rows("SELECT * FROM resumes WHERE id=?", (resume_id,))
+    if not rows: raise ValueError("CV introuvable")
+    if store.rows("SELECT id FROM applications WHERE resume_id=? LIMIT 1", (resume_id,)):
+        raise ValueError("Ce CV est utilisé par une candidature. Choisissez d'abord un autre CV dans son dossier")
+    documents_root = documents_dir.resolve()
+    path = Path(rows[0]["path"]).resolve()
+    try: path.relative_to(documents_root)
+    except ValueError as exc: raise ValueError("Chemin du CV invalide") from exc
+    was_preferred = bool(rows[0]["preferred"])
+    with store.connect() as db:
+        db.execute("DELETE FROM resumes WHERE id=?", (resume_id,))
+        if was_preferred:
+            replacement = db.execute("SELECT id FROM resumes ORDER BY id LIMIT 1").fetchone()
+            if replacement: db.execute("UPDATE resumes SET preferred=1 WHERE id=?", (replacement["id"],))
+        path.unlink(missing_ok=True)
+
+
 def create_backup(store, data_dir: Path, backup_dir: Path) -> Path:
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    target = backup_dir / f"cap-emploi-42-{stamp}.zip"
+    target = backup_dir / f"carnet-emploi-42-{stamp}.zip"
     snapshot = data_dir / f".snapshot-{stamp}.sqlite3"
     source = sqlite3.connect(store.path)
     destination = sqlite3.connect(snapshot)
@@ -115,6 +145,79 @@ def verify_backup(path: Path) -> dict:
             return manifest
     except (zipfile.BadZipFile, json.JSONDecodeError) as exc:
         raise ValueError("Fichier de sauvegarde invalide") from exc
+
+
+def list_backups(backup_dir: Path) -> list[dict]:
+    """Inventorie les archives locales sans empêcher l'affichage si l'une est invalide."""
+    if not backup_dir.exists(): return []
+    result = []
+    for path in sorted(backup_dir.glob("*.zip"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            manifest = verify_backup(path)
+            result.append({"filename":path.name,"size":path.stat().st_size,"created_at":manifest.get("created_at"),"valid":True,"error":""})
+        except ValueError as exc:
+            result.append({"filename":path.name,"size":path.stat().st_size,"created_at":None,"valid":False,"error":str(exc)})
+    return result
+
+
+def backup_path(backup_dir: Path, filename: str) -> Path:
+    """Résout uniquement un nom d'archive situé directement dans le dossier dédié."""
+    if Path(filename).name != filename or Path(filename).suffix.lower() != ".zip":
+        raise ValueError("Nom de sauvegarde invalide")
+    root = backup_dir.resolve(); path = (root / filename).resolve()
+    try: path.relative_to(root)
+    except ValueError as exc: raise ValueError("Chemin de sauvegarde invalide") from exc
+    if not path.is_file(): raise ValueError("Sauvegarde introuvable")
+    return path
+
+
+def delete_backup(backup_dir: Path, filename: str) -> None:
+    """Supprime uniquement une archive explicitement sélectionnée dans le dossier local."""
+    path = backup_path(backup_dir, filename)
+    path.unlink()
+
+
+def restore_backup(store, data_dir: Path, backup_dir: Path, filename: str, encoded: str) -> dict:
+    """Vérifie puis restaure une archive, après une sauvegarde de sécurité automatique."""
+    if Path(filename).suffix.lower() != ".zip": raise ValueError("La sauvegarde doit être un fichier ZIP")
+    try: content = base64.b64decode(encoded, validate=True)
+    except ValueError as exc: raise ValueError("Contenu de sauvegarde invalide") from exc
+    if not content or len(content) > MAX_BACKUP_BYTES:
+        raise ValueError("La sauvegarde doit avoir une taille comprise entre 1 octet et 30 Mo")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="restore-", dir=data_dir) as temporary:
+        staging = Path(temporary); archive_path = staging / "upload.zip"; archive_path.write_bytes(content)
+        manifest = verify_backup(archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            for name in archive.namelist():
+                path = Path(name)
+                if path.is_absolute() or ".." in path.parts or (name != "emploi.sqlite3" and name != "manifest.json" and not name.startswith("documents/")):
+                    raise ValueError("La sauvegarde contient un chemin non autorisé")
+            archive.extractall(staging / "content")
+        restored_db = staging / "content" / "emploi.sqlite3"
+        try:
+            connection = sqlite3.connect(restored_db)
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.DatabaseError as exc:
+            raise ValueError("La base de la sauvegarde est illisible") from exc
+        finally:
+            if "connection" in locals(): connection.close()
+        required = {"profile","resumes","companies","establishments","offers","applications"}
+        if integrity != "ok" or not required.issubset(tables): raise ValueError("La base de la sauvegarde est incomplète ou endommagée")
+        safety = create_backup(store,data_dir,backup_dir)
+        documents = data_dir / "documents"; old_documents = staging / "old-documents"
+        incoming_documents = staging / "content" / "documents"
+        try:
+            if documents.exists(): documents.rename(old_documents)
+            if incoming_documents.exists(): shutil.copytree(incoming_documents,documents)
+            else: documents.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(restored_db,store.path)
+        except Exception:
+            shutil.rmtree(documents,ignore_errors=True)
+            if old_documents.exists(): old_documents.rename(documents)
+            raise
+    return {"created_at":manifest.get("created_at"),"safety_backup":safety.name}
 
 
 def export_applications_csv(store, destination: Path) -> Path:
