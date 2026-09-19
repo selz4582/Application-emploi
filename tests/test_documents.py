@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 from core import Store
-from documents import create_backup, delete_resume, export_applications_csv, save_resume, set_preferred_resume, verify_backup, verify_resume
+from documents import create_backup, delete_resume, export_applications_csv, restore_backup, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -71,6 +71,23 @@ class DocumentTests(unittest.TestCase):
         second = create_backup(self.store, self.data, self.data / "backups")
         self.assertNotEqual(first, second); self.assertEqual(verify_backup(first)["format"], 1)
         with zipfile.ZipFile(first) as archive: self.assertTrue(any(x.startswith("documents/") for x in archive.namelist()))
+
+    def test_backup_can_be_safely_restored(self):
+        self.store.upsert_profile({"first_name":"Avant"}); self.add_resume()
+        archive=create_backup(self.store,self.data,self.data/"backups")
+        self.store.upsert_profile({"first_name":"Après"})
+        result=restore_backup(self.store,self.data,self.data/"backups",archive.name,base64.b64encode(archive.read_bytes()).decode())
+        self.assertEqual(self.store.rows("SELECT first_name FROM profile")[0]["first_name"],"Avant")
+        self.assertTrue((self.data/"backups"/result["safety_backup"]).is_file())
+        self.assertTrue(any((self.data/"documents").iterdir()))
+
+    def test_restore_rejects_an_invalid_database(self):
+        stream=io.BytesIO()
+        with zipfile.ZipFile(stream,"w") as archive:
+            archive.writestr("manifest.json",json.dumps({"format":1}))
+            archive.writestr("emploi.sqlite3",b"not sqlite")
+        with self.assertRaisesRegex(ValueError,"illisible"):
+            restore_backup(self.store,self.data,self.data/"backups","bad.zip",base64.b64encode(stream.getvalue()).decode())
 
     def test_csv_export_has_header(self):
         path = export_applications_csv(self.store, self.data / "exports" / "candidatures.csv")

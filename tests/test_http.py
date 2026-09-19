@@ -73,5 +73,19 @@ class HttpSmokeTests(unittest.TestCase):
         self.assertEqual(json.loads(body)[0]["id"], created["id"])
         self.assertEqual(json.loads(body)[0]["score"], 50)
 
+    def test_contact_lifecycle_is_available_over_http(self):
+        company=app.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",))
+        establishment=app.store.execute("INSERT INTO establishments(company_id,name,postcode) VALUES(?,?,?)",(company,"Test Loire","42000"))
+        status, created=self.post("/api/contacts",{"establishment_id":establishment,"email":"rh@test.fr","source_url":"https://test.fr/contact"})
+        self.assertEqual(status,201)
+        status,_=self.post(f"/api/contacts/{created['id']}/update",{"establishment_id":establishment,"name":"RH","email":"emploi@test.fr","source_url":"https://test.fr/emploi"})
+        self.assertEqual(status,200)
+        status,_=self.post(f"/api/contacts/{created['id']}/active",{"active":False})
+        self.assertEqual(status,200)
+        _, body, _=self.get("/api/contacts?include_inactive=1")
+        self.assertEqual(json.loads(body)[0]["active"],0)
+        status,_=self.post(f"/api/contacts/{created['id']}/delete",{})
+        self.assertEqual(status,200)
+
 
 if __name__ == "__main__": unittest.main()

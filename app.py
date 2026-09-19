@@ -5,7 +5,7 @@ import json, mimetypes, os, threading, webbrowser
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import SireneConnector
-from documents import create_backup, delete_resume, export_applications_csv, save_resume, set_preferred_resume, verify_resume
+from documents import create_backup, delete_resume, export_applications_csv, restore_backup, save_resume, set_preferred_resume, verify_resume
 
 ROOT=Path(__file__).parent; DATA=ROOT/"data"; store=Store(DATA/"emploi.sqlite3")
 
@@ -20,9 +20,18 @@ class Handler(SimpleHTTPRequestHandler):
         body=json.dumps(obj,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def body(self):
         length=int(self.headers.get("Content-Length","0"))
-        if length > 14 * 1024 * 1024: raise ValueError("Requête trop volumineuse")
-        try: return json.loads(self.rfile.read(length) or b"{}")
+        if length > 42 * 1024 * 1024: raise ValueError("Requête trop volumineuse")
+        try: data=json.loads(self.rfile.read(length) or b"{}")
         except (ValueError,json.JSONDecodeError): raise ValueError("JSON invalide")
+        def check(value, key="champ"):
+            limits={"content":40*1024*1024,"description":10000,"email_body":10000,"letter":10000,"motivation":4000,"source_url":2000}
+            if isinstance(value,str) and len(value)>limits.get(key,4000): raise ValueError(f"Le champ {key} dépasse la taille autorisée")
+            if isinstance(value,dict):
+                for name,item in value.items(): check(item,str(name))
+            elif isinstance(value,list):
+                if len(value)>1000: raise ValueError("La liste contient trop d'éléments")
+                for item in value: check(item,key)
+        check(data); return data
     def do_GET(self):
         p=urlparse(self.path)
         if p.path=="/api/dashboard": store.maintain(); return self.send_json(store.dashboard())
@@ -38,10 +47,10 @@ class Handler(SimpleHTTPRequestHandler):
             q=parse_qs(p.query); cid=q.get("company_id",[""])[0]
             return self.send_json(store.rows("SELECT * FROM establishments WHERE active=1 AND postcode LIKE '42%'"+(" AND company_id=?" if cid else "")+" ORDER BY city,name",(cid,) if cid else ()))
         if p.path=="/api/contacts":
-            raw=parse_qs(p.query).get("establishment_id",[""])[0]
+            query=parse_qs(p.query); raw=query.get("establishment_id",[""])[0]
             try: establishment_id=int(raw) if raw else None
             except ValueError: return self.send_json({"error":"Établissement invalide"},400)
-            return self.send_json(store.contacts(establishment_id))
+            return self.send_json(store.contacts(establishment_id,query.get("include_inactive",[""])[0]=="1"))
         if p.path=="/api/resumes":
             rows=store.rows("SELECT id,filename,extracted,verified_json,preferred,created_at FROM resumes ORDER BY id")
             for row in rows: row["verified"]=json.loads(row.pop("verified_json"))
@@ -94,6 +103,8 @@ class Handler(SimpleHTTPRequestHandler):
                 store.delete_notification(int(p.split("/")[3])); return self.send_json({"ok":True})
             if p=="/api/backup":
                 path=create_backup(store,DATA,DATA/"backups"); return self.send_json({"filename":path.name,"path":str(path)})
+            if p=="/api/backup/restore":
+                result=restore_backup(store,DATA,DATA/"backups",d.get("filename",""),d.get("content","")); store.__init__(store.path); return self.send_json(result)
             if p=="/api/export/csv":
                 path=export_applications_csv(store,DATA/"exports"/f"candidatures-{now()[:10]}.csv"); return self.send_json({"filename":path.name,"path":str(path)})
             if p.startswith("/api/offers/") and p.endswith("/trash"):
@@ -110,6 +121,12 @@ class Handler(SimpleHTTPRequestHandler):
             if p=="/api/sirene/search": return self.send_json(SireneConnector(os.getenv("INSEE_API_TOKEN","")).search_loire(d.get("query",""),d.get("workforce",""),d.get("limit",50)))
             if p=="/api/contacts":
                 return self.send_json({"id":store.add_public_contact(d)},201)
+            if p.startswith("/api/contacts/") and p.endswith("/update"):
+                store.update_public_contact(int(p.split("/")[3]),d); return self.send_json({"ok":True})
+            if p.startswith("/api/contacts/") and p.endswith("/active"):
+                store.set_contact_active(int(p.split("/")[3]),bool(d.get("active"))); return self.send_json({"ok":True})
+            if p.startswith("/api/contacts/") and p.endswith("/delete"):
+                store.delete_contact(int(p.split("/")[3])); return self.send_json({"ok":True})
             if p=="/api/spontaneous":
                 position=d.get("position","").strip()
                 if not position: raise ValueError("Un poste précis est obligatoire")

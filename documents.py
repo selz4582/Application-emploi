@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import sqlite3
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from xml.etree import ElementTree
 
 ALLOWED_RESUME_EXTENSIONS = {".docx", ".odt"}
 MAX_RESUME_BYTES = 10 * 1024 * 1024
+MAX_BACKUP_BYTES = 30 * 1024 * 1024
 
 
 def safe_filename(name: str) -> str:
@@ -143,6 +145,49 @@ def verify_backup(path: Path) -> dict:
             return manifest
     except (zipfile.BadZipFile, json.JSONDecodeError) as exc:
         raise ValueError("Fichier de sauvegarde invalide") from exc
+
+
+def restore_backup(store, data_dir: Path, backup_dir: Path, filename: str, encoded: str) -> dict:
+    """Vérifie puis restaure une archive, après une sauvegarde de sécurité automatique."""
+    if Path(filename).suffix.lower() != ".zip": raise ValueError("La sauvegarde doit être un fichier ZIP")
+    try: content = base64.b64decode(encoded, validate=True)
+    except ValueError as exc: raise ValueError("Contenu de sauvegarde invalide") from exc
+    if not content or len(content) > MAX_BACKUP_BYTES:
+        raise ValueError("La sauvegarde doit avoir une taille comprise entre 1 octet et 30 Mo")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="restore-", dir=data_dir) as temporary:
+        staging = Path(temporary); archive_path = staging / "upload.zip"; archive_path.write_bytes(content)
+        manifest = verify_backup(archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            for name in archive.namelist():
+                path = Path(name)
+                if path.is_absolute() or ".." in path.parts or (name != "emploi.sqlite3" and name != "manifest.json" and not name.startswith("documents/")):
+                    raise ValueError("La sauvegarde contient un chemin non autorisé")
+            archive.extractall(staging / "content")
+        restored_db = staging / "content" / "emploi.sqlite3"
+        try:
+            connection = sqlite3.connect(restored_db)
+            integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.DatabaseError as exc:
+            raise ValueError("La base de la sauvegarde est illisible") from exc
+        finally:
+            if "connection" in locals(): connection.close()
+        required = {"profile","resumes","companies","establishments","offers","applications"}
+        if integrity != "ok" or not required.issubset(tables): raise ValueError("La base de la sauvegarde est incomplète ou endommagée")
+        safety = create_backup(store,data_dir,backup_dir)
+        documents = data_dir / "documents"; old_documents = staging / "old-documents"
+        incoming_documents = staging / "content" / "documents"
+        try:
+            if documents.exists(): documents.rename(old_documents)
+            if incoming_documents.exists(): shutil.copytree(incoming_documents,documents)
+            else: documents.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(restored_db,store.path)
+        except Exception:
+            shutil.rmtree(documents,ignore_errors=True)
+            if old_documents.exists(): old_documents.rename(documents)
+            raise
+    return {"created_at":manifest.get("created_at"),"safety_backup":safety.name}
 
 
 def export_applications_csv(store, destination: Path) -> Path:

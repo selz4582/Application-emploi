@@ -27,6 +27,15 @@ class DomainTests(unittest.TestCase):
         contact=self.store.add_public_contact({"establishment_id":eid,"name":"Accueil RH","role":"Recrutement","email":"RH@Test.fr","source_url":"https://test.fr/contact","confidence":"élevé"})
         self.assertEqual(self.store.contacts(eid)[0]["id"],contact); self.assertEqual(self.store.contacts(eid)[0]["email"],"rh@test.fr")
         with self.assertRaisesRegex(ValueError,"existe déjà"): self.store.add_public_contact({"establishment_id":eid,"email":"rh@test.fr","source_url":"https://test.fr/contact"})
+
+    def test_public_contact_can_be_updated_disabled_and_deleted(self):
+        cid=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",)); eid=self.store.execute("INSERT INTO establishments(company_id,name,postcode) VALUES(?,?,?)",(cid,"Test Loire","42000"))
+        contact=self.store.add_public_contact({"establishment_id":eid,"name":"Accueil","email":"rh@test.fr","source_url":"https://test.fr/contact"})
+        self.store.update_public_contact(contact,{"establishment_id":eid,"name":"RH","role":"Recrutement","email":"emploi@test.fr","source_url":"https://test.fr/emploi","confidence":"élevé"})
+        self.assertEqual(self.store.contacts()[0]["email"],"emploi@test.fr")
+        self.store.set_contact_active(contact,False); self.assertEqual(self.store.contacts(),[])
+        self.assertEqual(len(self.store.contacts(include_inactive=True)),1)
+        self.store.delete_contact(contact); self.assertEqual(self.store.contacts(include_inactive=True),[])
     def test_one_email_six_lines(self):
         mail=build_email("Accueil","Anne Dupont","Médiathèque","Votre mission m'intéresse.")
         self.assertLessEqual(len(mail["body"].splitlines()),6); self.assertIn("Accueil",mail["subject"])
@@ -75,6 +84,16 @@ class DomainTests(unittest.TestCase):
     def test_manual_offer_validates_required_and_travel_fields(self):
         with self.assertRaisesRegex(ValueError,"obligatoires"): self.store.create_offer({"title":"Agent"})
         with self.assertRaisesRegex(ValueError,"deux durées"): self.store.create_offer({"title":"Agent","company":"Test","outbound_minutes":"20"})
+
+    def test_manual_journey_keeps_verification_date_and_source(self):
+        self.store.create_offer({"title":"Agent","company":"Test","outbound_minutes":"20","return_minutes":"25"})
+        offer=self.store.dashboard()["offers"][0]
+        self.assertEqual(offer["journey_source"],"Saisie manuelle")
+        self.assertTrue(offer["journey_checked_at"])
+
+    def test_profile_and_offer_fields_have_length_limits(self):
+        with self.assertRaisesRegex(ValueError,"200 caractères"): self.store.create_offer({"title":"x"*201,"company":"Test"})
+        with self.assertRaisesRegex(ValueError,"80 caractères"): self.store.upsert_profile({"first_name":"x"*81})
 
     def test_offer_can_be_edited_and_score_is_recalculated(self):
         self.store.upsert_profile({"title":"Agent accueil","summary":"culture"})

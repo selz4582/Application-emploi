@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS profile(id INTEGER PRIMARY KEY CHECK(id=1), first_nam
 CREATE TABLE IF NOT EXISTS resumes(id INTEGER PRIMARY KEY, filename TEXT NOT NULL, path TEXT NOT NULL, extracted TEXT DEFAULT '', verified_json TEXT DEFAULT '{}', preferred INTEGER DEFAULT 0, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS companies(id INTEGER PRIMARY KEY, siren TEXT UNIQUE, name TEXT NOT NULL, activity TEXT DEFAULT '', workforce TEXT DEFAULT '', source_url TEXT DEFAULT '', checked_at TEXT, active INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS establishments(id INTEGER PRIMARY KEY, company_id INTEGER REFERENCES companies(id), siret TEXT UNIQUE, name TEXT NOT NULL, address TEXT DEFAULT '', postcode TEXT DEFAULT '', city TEXT DEFAULT '', workforce TEXT DEFAULT '', active INTEGER DEFAULT 1, latitude REAL, longitude REAL);
-CREATE TABLE IF NOT EXISTS contacts(id INTEGER PRIMARY KEY, establishment_id INTEGER REFERENCES establishments(id), name TEXT DEFAULT '', role TEXT DEFAULT '', email TEXT NOT NULL, source_url TEXT NOT NULL, checked_at TEXT NOT NULL, confidence TEXT DEFAULT 'moyen', UNIQUE(email, establishment_id));
+CREATE TABLE IF NOT EXISTS contacts(id INTEGER PRIMARY KEY, establishment_id INTEGER REFERENCES establishments(id), name TEXT DEFAULT '', role TEXT DEFAULT '', email TEXT NOT NULL, source_url TEXT NOT NULL, checked_at TEXT NOT NULL, confidence TEXT DEFAULT 'moyen', active INTEGER DEFAULT 1, UNIQUE(email, establishment_id));
 CREATE TABLE IF NOT EXISTS offers(id INTEGER PRIMARY KEY, company_id INTEGER REFERENCES companies(id), establishment_id INTEGER REFERENCES establishments(id), title TEXT NOT NULL, city TEXT DEFAULT '', contract TEXT DEFAULT '', work_time TEXT DEFAULT '', description TEXT DEFAULT '', sector TEXT DEFAULT '', published_at TEXT, expires_at TEXT, handicap_explicit INTEGER DEFAULT 0, status TEXT DEFAULT 'À étudier', application_type TEXT DEFAULT 'offre', applied_at TEXT, expected_reply TEXT, followup_at TEXT, next_action TEXT DEFAULT '', deleted_at TEXT);
 CREATE TABLE IF NOT EXISTS offer_sources(id INTEGER PRIMARY KEY, offer_id INTEGER REFERENCES offers(id) ON DELETE CASCADE, source TEXT NOT NULL, url TEXT NOT NULL, reference TEXT DEFAULT '', UNIQUE(source,url));
 CREATE TABLE IF NOT EXISTS scores(offer_id INTEGER PRIMARY KEY REFERENCES offers(id) ON DELETE CASCADE, total INTEGER NOT NULL, details_json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS journeys(offer_id INTEGER PRIMARY KEY REFERENCES offers(id) ON DELETE CASCADE, outbound_departure TEXT, outbound_arrival TEXT, outbound_minutes INTEGER, return_departure TEXT, return_arrival TEXT, return_minutes INTEGER, verified INTEGER DEFAULT 0, warning TEXT DEFAULT 'Trajet à vérifier');
+CREATE TABLE IF NOT EXISTS journeys(offer_id INTEGER PRIMARY KEY REFERENCES offers(id) ON DELETE CASCADE, outbound_departure TEXT, outbound_arrival TEXT, outbound_minutes INTEGER, return_departure TEXT, return_arrival TEXT, return_minutes INTEGER, verified INTEGER DEFAULT 0, warning TEXT DEFAULT 'Trajet à vérifier', checked_at TEXT, source TEXT DEFAULT 'Saisie manuelle');
 CREATE TABLE IF NOT EXISTS applications(id INTEGER PRIMARY KEY, offer_id INTEGER REFERENCES offers(id), establishment_id INTEGER REFERENCES establishments(id), position TEXT NOT NULL, resume_id INTEGER REFERENCES resumes(id), letter TEXT DEFAULT '', email_to TEXT DEFAULT '', email_subject TEXT DEFAULT '', email_body TEXT DEFAULT '', checklist_json TEXT DEFAULT '{}', status TEXT DEFAULT 'Candidature préparée', sent_at TEXT, response_at TEXT, expected_reply TEXT, followup_at TEXT, next_action TEXT DEFAULT '', created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, application_id INTEGER REFERENCES applications(id), message TEXT NOT NULL, due_at TEXT, read_at TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS learnings(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, value TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -46,6 +46,11 @@ class Store:
             columns = {row[1] for row in db.execute("PRAGMA table_info(applications)")}
             for name, definition in (("response_at", "TEXT"), ("expected_reply", "TEXT"), ("followup_at", "TEXT"), ("next_action", "TEXT DEFAULT ''")):
                 if name not in columns: db.execute(f"ALTER TABLE applications ADD COLUMN {name} {definition}")
+            contact_columns = {row[1] for row in db.execute("PRAGMA table_info(contacts)")}
+            if "active" not in contact_columns: db.execute("ALTER TABLE contacts ADD COLUMN active INTEGER DEFAULT 1")
+            journey_columns = {row[1] for row in db.execute("PRAGMA table_info(journeys)")}
+            for name, definition in (("checked_at","TEXT"),("source","TEXT DEFAULT 'Saisie manuelle'")):
+                if name not in journey_columns: db.execute(f"ALTER TABLE journeys ADD COLUMN {name} {definition}")
 
     def connect(self):
         db = sqlite3.connect(self.path, factory=ClosingConnection)
@@ -62,12 +67,13 @@ class Store:
 
     def upsert_profile(self, data):
         allowed = ("first_name","last_name","civility","city","department","title","email","phone","hobbies","summary")
-        vals = [str(data.get(k, "")) for k in allowed]
+        limits = {"first_name":80,"last_name":80,"civility":30,"city":120,"department":10,"title":160,"email":254,"phone":40,"hobbies":2000,"summary":4000}
+        vals = [limited_text(data.get(k, ""),limits[k],k) for k in allowed]
         with self.connect() as db:
             db.execute(f"INSERT INTO profile(id,{','.join(allowed)}) VALUES(1,{','.join('?' for _ in allowed)}) ON CONFLICT(id) DO UPDATE SET " + ','.join(f"{k}=excluded.{k}" for k in allowed), vals)
 
     def dashboard(self):
-        offers = self.rows("""SELECT o.*,c.name company,e.name establishment,s.total score,s.details_json,j.outbound_minutes,j.return_minutes,
+        offers = self.rows("""SELECT o.*,c.name company,e.name establishment,s.total score,s.details_json,j.outbound_minutes,j.return_minutes,j.checked_at journey_checked_at,j.source journey_source,
           group_concat(os.source, ', ') sources,max(os.url) source_url FROM offers o LEFT JOIN companies c ON c.id=o.company_id
           LEFT JOIN establishments e ON e.id=o.establishment_id LEFT JOIN scores s ON s.offer_id=o.id
           LEFT JOIN journeys j ON j.offer_id=o.id LEFT JOIN offer_sources os ON os.offer_id=o.id
@@ -79,7 +85,7 @@ class Store:
 
     def create_offer(self, data: dict) -> dict:
         """Enregistre une offre saisie par l'utilisateur et son score explicable."""
-        title, company_name = str(data.get("title", "")).strip(), str(data.get("company", "")).strip()
+        title, company_name = limited_text(data.get("title", ""),200,"poste"), limited_text(data.get("company", ""),200,"entreprise")
         if not title or not company_name: raise ValueError("Le poste et l'entreprise sont obligatoires")
         published_at = str(data.get("published_at", "")).strip() or None
         if published_at:
@@ -100,7 +106,7 @@ class Store:
                 except (TypeError, ValueError) as exc: raise ValueError("Les deux durées de trajet doivent être renseignées en minutes") from exc
                 if min(outbound, returning) < 0: raise ValueError("Les durées de trajet doivent être positives")
                 journey = {"outbound_minutes":outbound,"return_minutes":returning,"verified":1}
-                db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning) VALUES(?,?,?,?,?)", (offer_id,outbound,returning,1,""))
+                db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning,checked_at,source) VALUES(?,?,?,?,?,?,?)", (offer_id,outbound,returning,1,"",now(),"Saisie manuelle"))
             profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
             resume = db.execute("SELECT extracted,verified_json FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
             offer = {"title":title,"sector":str(data.get("sector", "")),"description":str(data.get("description", ""))}
@@ -110,7 +116,7 @@ class Store:
 
     def update_offer(self, offer_id: int, data: dict) -> dict:
         """Modifie une offre locale et recalcule immédiatement son score."""
-        title, company_name = str(data.get("title", "")).strip(), str(data.get("company", "")).strip()
+        title, company_name = limited_text(data.get("title", ""),200,"poste"), limited_text(data.get("company", ""),200,"entreprise")
         if not title or not company_name: raise ValueError("Le poste et l'entreprise sont obligatoires")
         published_at = str(data.get("published_at", "")).strip() or None
         if published_at:
@@ -140,7 +146,7 @@ class Store:
             journey = None
             if outbound not in (None, ""):
                 journey = {"outbound_minutes":outbound,"return_minutes":returning,"verified":1}
-                db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning) VALUES(?,?,?,?,?)", (offer_id,outbound,returning,1,""))
+                db.execute("INSERT INTO journeys(offer_id,outbound_minutes,return_minutes,verified,warning,checked_at,source) VALUES(?,?,?,?,?,?,?)", (offer_id,outbound,returning,1,"",now(),"Saisie manuelle"))
             profile = db.execute("SELECT title,summary FROM profile WHERE id=1").fetchone()
             resume = db.execute("SELECT extracted,verified_json FROM resumes ORDER BY preferred DESC,id LIMIT 1").fetchone()
             offer = {"title":title,"sector":str(data.get("sector", "")),"description":str(data.get("description", ""))}
@@ -179,10 +185,11 @@ class Store:
             VALUES(?,?,?,?,?,?,?)""", (offer_id,offer[0]["title"],resume[0]["id"] if resume else None,draft["subject"],draft["body"],
             '{"destinataire_verifie": false, "champs_sensibles_vides": true, "validation_humaine": false}',now()))
 
-    def contacts(self, establishment_id: int | None = None) -> list[dict]:
+    def contacts(self, establishment_id: int | None = None, include_inactive: bool = False) -> list[dict]:
         sql = """SELECT ct.*,e.name establishment,e.city FROM contacts ct
                  JOIN establishments e ON e.id=ct.establishment_id WHERE e.active=1"""
         args = ()
+        if not include_inactive: sql += " AND ct.active=1"
         if establishment_id is not None:
             sql += " AND ct.establishment_id=?"; args = (establishment_id,)
         return self.rows(sql + " ORDER BY e.name,ct.confidence DESC,ct.name", args)
@@ -201,6 +208,31 @@ class Store:
         return self.execute("""INSERT INTO contacts(establishment_id,name,role,email,source_url,checked_at,confidence)
             VALUES(?,?,?,?,?,?,?)""", (establishment_id,str(data.get("name", "")).strip(),str(data.get("role", "")).strip(),email,
             str(data["source_url"]).strip(),now(),confidence))
+
+    def update_public_contact(self, contact_id: int, data: dict) -> None:
+        validate_public_contact(data)
+        try: establishment_id = int(data.get("establishment_id"))
+        except (TypeError, ValueError) as exc: raise ValueError("Établissement obligatoire") from exc
+        if not self.rows("SELECT id FROM establishments WHERE id=? AND active=1", (establishment_id,)):
+            raise ValueError("Établissement actif introuvable")
+        email = str(data["email"]).strip().lower(); confidence = str(data.get("confidence", "moyen"))
+        if confidence not in {"faible","moyen","élevé"}: raise ValueError("Niveau de confiance inconnu")
+        duplicate = self.rows("SELECT id FROM contacts WHERE establishment_id=? AND lower(email)=? AND id<>?", (establishment_id,email,contact_id))
+        if duplicate: raise ValueError("Ce contact existe déjà pour cet établissement")
+        with self.connect() as db:
+            cursor = db.execute("""UPDATE contacts SET establishment_id=?,name=?,role=?,email=?,source_url=?,checked_at=?,confidence=? WHERE id=?""",
+                (establishment_id,limited_text(data.get("name",""),160,"nom"),limited_text(data.get("role",""),160,"fonction"),email,str(data["source_url"]).strip(),now(),confidence,contact_id))
+            if not cursor.rowcount: raise ValueError("Contact introuvable")
+
+    def set_contact_active(self, contact_id: int, active: bool) -> None:
+        with self.connect() as db:
+            cursor=db.execute("UPDATE contacts SET active=? WHERE id=?",(int(active),contact_id))
+            if not cursor.rowcount: raise ValueError("Contact introuvable")
+
+    def delete_contact(self, contact_id: int) -> None:
+        with self.connect() as db:
+            cursor=db.execute("DELETE FROM contacts WHERE id=?",(contact_id,))
+            if not cursor.rowcount: raise ValueError("Contact introuvable")
 
     def applications(self):
         return self.rows("""SELECT a.id,a.position,a.status,a.sent_at,a.expected_reply,a.followup_at,a.next_action,
@@ -317,6 +349,11 @@ class Store:
 def terms(text: str) -> set[str]:
     return {x for x in re.findall(r"[a-zà-ÿ0-9+#.]{2,}", text.lower())}
 
+def limited_text(value, maximum: int, label: str) -> str:
+    text = str(value or "").strip()
+    if len(text) > maximum: raise ValueError(f"Le champ {label} dépasse {maximum} caractères")
+    return text
+
 def resume_scoring_text(resume) -> str:
     """N'utilise que les éléments de CV relus; l'extraction brute reste informative."""
     if not resume: return ""
@@ -352,9 +389,11 @@ def hidden_offer(offer: dict, score: int | None, journey: dict | None = None) ->
     return reasons
 
 def validate_public_contact(data: dict):
-    email = str(data.get("email", "")).strip()
+    email = limited_text(data.get("email", ""),254,"e-mail")
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email): raise ValueError("Adresse électronique invalide")
-    if not str(data.get("source_url", "")).startswith(("http://","https://")): raise ValueError("Une page source publique est obligatoire")
+    source_url = limited_text(data.get("source_url", ""),2000,"source")
+    limited_text(data.get("name", ""),160,"nom"); limited_text(data.get("role", ""),160,"fonction")
+    if not source_url.startswith(("http://","https://")): raise ValueError("Une page source publique est obligatoire")
     if any(x in email.lower() for x in ("gmail.com","hotmail.","outlook.","yahoo.")): raise ValueError("Les adresses privées ne sont pas conservées")
     return True
 

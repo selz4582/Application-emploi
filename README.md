@@ -37,6 +37,9 @@ le destinataire et le CV. L'application n'envoie aucun courriel : le statut « e
 ne peut être confirmé qu'après validation explicite des trois contrôles humains.
 Les contacts doivent provenir d'une page publique de l'établissement. Les adresses
 personnelles sont refusées et la source reste enregistrée pour pouvoir être vérifiée.
+Ils peuvent être corrigés, désactivés, réactivés ou supprimés. Une source contrôlée
+depuis plus de 180 jours est signalée comme étant à revérifier. Les trajets saisis
+manuellement affichent également leur date de contrôle et leur origine.
 
 ## Données et sauvegardes
 
@@ -50,6 +53,9 @@ de candidature, l'application demande d'abord de sélectionner un autre CV dans 
 L'écran **Mes CV** permet de créer une archive datée dans `data/backups` et un export
 CSV dans `data/exports`. Une archive contient un instantané cohérent de SQLite, les
 documents et un manifeste contrôlable. Les anciennes archives ne sont jamais écrasées.
+La restauration accepte uniquement une archive ZIP valide de 30 Mo maximum, contrôle
+son manifeste, ses chemins et l'intégrité de SQLite, puis crée automatiquement une
+sauvegarde de sécurité des données actuelles avant leur remplacement.
 
 ## Voir les maquettes
 
