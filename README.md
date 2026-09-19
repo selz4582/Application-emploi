@@ -56,6 +56,10 @@ documents et un manifeste contrôlable. Les anciennes archives ne sont jamais é
 La restauration accepte uniquement une archive ZIP valide de 30 Mo maximum, contrôle
 son manifeste, ses chemins et l'intégrité de SQLite, puis crée automatiquement une
 sauvegarde de sécurité des données actuelles avant leur remplacement.
+Les archives locales sont listées dans l'application avec leur taille et leur état de
+validité. Elles peuvent être téléchargées pour être conservées sur un autre support.
+Le bouton **Vérifier les données** contrôle l'intégrité de la base, l'accès en écriture,
+la version de Python utilisée et le nombre de sauvegardes disponibles.
 
 ## Voir les maquettes
 

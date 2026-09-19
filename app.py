@@ -2,10 +2,11 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 import json, mimetypes, os, threading, webbrowser
+import sys
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import SireneConnector
-from documents import create_backup, delete_resume, export_applications_csv, restore_backup, save_resume, set_preferred_resume, verify_resume
+from documents import backup_path, create_backup, delete_resume, export_applications_csv, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
 
 ROOT=Path(__file__).parent; DATA=ROOT/"data"; store=Store(DATA/"emploi.sqlite3")
 
@@ -18,6 +19,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_json(self,obj,status=200):
         body=json.dumps(obj,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+    def send_file(self,path: Path):
+        body=path.read_bytes(); self.send_response(200); self.send_header("Content-Type","application/zip"); self.send_header("Content-Disposition",f'attachment; filename="{path.name}"'); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def body(self):
         length=int(self.headers.get("Content-Length","0"))
         if length > 42 * 1024 * 1024: raise ValueError("Requête trop volumineuse")
@@ -65,6 +68,13 @@ class Handler(SimpleHTTPRequestHandler):
             period=parse_qs(p.query).get("period",["month"])[0]
             if period not in {"week","month"}: return self.send_json({"error":"Période inconnue"},400)
             return self.send_json(store.statistics(period))
+        if p.path=="/api/backups": return self.send_json(list_backups(DATA/"backups"))
+        if p.path=="/api/backups/download":
+            try: return self.send_file(backup_path(DATA/"backups",parse_qs(p.query).get("name",[""])[0]))
+            except ValueError as e: return self.send_json({"error":str(e)},404)
+        if p.path=="/api/diagnostics":
+            integrity=store.rows("PRAGMA integrity_check")[0]["integrity_check"]
+            return self.send_json({"python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK)})
         return self.serve_static(p.path)
     def serve_static(self,path):
         rel="index.html" if path=="/" else path.lstrip("/"); static_root=(ROOT/"static").resolve(); target=(static_root/rel).resolve()

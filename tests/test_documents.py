@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 from core import Store
-from documents import create_backup, delete_resume, export_applications_csv, restore_backup, save_resume, set_preferred_resume, verify_backup, verify_resume
+from documents import backup_path, create_backup, delete_resume, export_applications_csv, list_backups, restore_backup, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -71,6 +71,10 @@ class DocumentTests(unittest.TestCase):
         second = create_backup(self.store, self.data, self.data / "backups")
         self.assertNotEqual(first, second); self.assertEqual(verify_backup(first)["format"], 1)
         with zipfile.ZipFile(first) as archive: self.assertTrue(any(x.startswith("documents/") for x in archive.namelist()))
+        listed=list_backups(self.data/"backups")
+        self.assertEqual(len(listed),2); self.assertTrue(all(item["valid"] for item in listed))
+        self.assertEqual(backup_path(self.data/"backups",first.name),first)
+        with self.assertRaisesRegex(ValueError,"invalide"): backup_path(self.data/"backups","../outside.zip")
 
     def test_backup_can_be_safely_restored(self):
         self.store.upsert_profile({"first_name":"Avant"}); self.add_resume()

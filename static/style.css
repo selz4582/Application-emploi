@@ -10,3 +10,4 @@ dialog{width:min(900px,94vw);max-height:92vh;overflow:auto;border:1px solid var(
 .offer-filters label{margin:0}
 @media(max-width:720px){.offer-filters{grid-template-columns:1fr}}
 .toast{position:fixed;right:24px;bottom:24px;z-index:20;max-width:420px;padding:14px 18px;border-radius:10px;background:var(--ink);color:var(--paper);box-shadow:0 12px 35px #0004}.toast.error{background:#8b2f28;color:#fff}button:disabled{opacity:.55;cursor:wait}.stale{color:#9b4d20;font-weight:700}.inactive{opacity:.6}
+.backup-list{display:grid;gap:8px}.backup-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px;border:1px solid var(--line);border-radius:9px}.backup-row small{display:block;color:var(--muted)}.backup-row.invalid{border-color:#c56b61}.backup-row .actions{display:flex;gap:8px;flex-wrap:wrap}

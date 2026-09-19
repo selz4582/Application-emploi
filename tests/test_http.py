@@ -13,7 +13,9 @@ class HttpSmokeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.previous_store = app.store
-        app.store = Store(Path(self.temp.name) / "http.sqlite3")
+        self.previous_data = app.DATA
+        app.DATA = Path(self.temp.name)
+        app.store = Store(app.DATA / "http.sqlite3")
         self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -22,6 +24,7 @@ class HttpSmokeTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown(); self.server.server_close(); self.thread.join()
         app.store = self.previous_store
+        app.DATA = self.previous_data
         self.temp.cleanup()
 
     def get(self, path):
@@ -51,6 +54,17 @@ class HttpSmokeTests(unittest.TestCase):
         status, body, _ = self.get("/api/statistics?period=month")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["total"], 0)
+
+    def test_diagnostics_and_backup_download(self):
+        status, created=self.post("/api/backup",{})
+        self.assertEqual(status,200)
+        status, body, content_type=self.get("/api/backups")
+        self.assertEqual(status,200); self.assertEqual(json.loads(body)[0]["filename"],created["filename"])
+        status, archive, content_type=self.get("/api/backups/download?name="+created["filename"])
+        self.assertEqual(status,200); self.assertEqual(content_type,"application/zip"); self.assertTrue(archive.startswith(b"PK"))
+        status, body, _=self.get("/api/diagnostics")
+        diagnostics=json.loads(body)
+        self.assertEqual(status,200); self.assertEqual(diagnostics["integrity"],"ok"); self.assertTrue(diagnostics["writable"])
 
     def test_offer_can_be_created_then_updated_over_http(self):
         status, created = self.post("/api/offers", {"title": "Agent", "company": "Test"})

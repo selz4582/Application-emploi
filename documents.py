@@ -147,6 +147,30 @@ def verify_backup(path: Path) -> dict:
         raise ValueError("Fichier de sauvegarde invalide") from exc
 
 
+def list_backups(backup_dir: Path) -> list[dict]:
+    """Inventorie les archives locales sans empêcher l'affichage si l'une est invalide."""
+    if not backup_dir.exists(): return []
+    result = []
+    for path in sorted(backup_dir.glob("*.zip"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            manifest = verify_backup(path)
+            result.append({"filename":path.name,"size":path.stat().st_size,"created_at":manifest.get("created_at"),"valid":True,"error":""})
+        except ValueError as exc:
+            result.append({"filename":path.name,"size":path.stat().st_size,"created_at":None,"valid":False,"error":str(exc)})
+    return result
+
+
+def backup_path(backup_dir: Path, filename: str) -> Path:
+    """Résout uniquement un nom d'archive situé directement dans le dossier dédié."""
+    if Path(filename).name != filename or Path(filename).suffix.lower() != ".zip":
+        raise ValueError("Nom de sauvegarde invalide")
+    root = backup_dir.resolve(); path = (root / filename).resolve()
+    try: path.relative_to(root)
+    except ValueError as exc: raise ValueError("Chemin de sauvegarde invalide") from exc
+    if not path.is_file(): raise ValueError("Sauvegarde introuvable")
+    return path
+
+
 def restore_backup(store, data_dir: Path, backup_dir: Path, filename: str, encoded: str) -> dict:
     """Vérifie puis restaure une archive, après une sauvegarde de sécurité automatique."""
     if Path(filename).suffix.lower() != ".zip": raise ValueError("La sauvegarde doit être un fichier ZIP")
