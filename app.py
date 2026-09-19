@@ -1,12 +1,12 @@
 """Serveur HTTP local sans dépendance tierce."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-import json, mimetypes, os, threading, webbrowser
+import base64, json, mimetypes, os, threading, webbrowser
 import sys
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import SireneConnector
-from documents import backup_path, create_backup, delete_resume, export_applications_csv, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
+from documents import backup_path, create_backup, delete_backup, delete_resume, export_applications_csv, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
 
 ROOT=Path(__file__).parent; DATA=ROOT/"data"; store=Store(DATA/"emploi.sqlite3")
 
@@ -115,6 +115,11 @@ class Handler(SimpleHTTPRequestHandler):
                 path=create_backup(store,DATA,DATA/"backups"); return self.send_json({"filename":path.name,"path":str(path)})
             if p=="/api/backup/restore":
                 result=restore_backup(store,DATA,DATA/"backups",d.get("filename",""),d.get("content","")); store.__init__(store.path); return self.send_json(result)
+            if p=="/api/backups/restore-local":
+                path=backup_path(DATA/"backups",str(d.get("filename","")))
+                result=restore_backup(store,DATA,DATA/"backups",path.name,base64.b64encode(path.read_bytes()).decode()); store.__init__(store.path); return self.send_json(result)
+            if p=="/api/backups/delete":
+                delete_backup(DATA/"backups",str(d.get("filename",""))); return self.send_json({"ok":True})
             if p=="/api/export/csv":
                 path=export_applications_csv(store,DATA/"exports"/f"candidatures-{now()[:10]}.csv"); return self.send_json({"filename":path.name,"path":str(path)})
             if p.startswith("/api/offers/") and p.endswith("/trash"):

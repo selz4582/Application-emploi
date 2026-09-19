@@ -66,6 +66,19 @@ class HttpSmokeTests(unittest.TestCase):
         diagnostics=json.loads(body)
         self.assertEqual(status,200); self.assertEqual(diagnostics["integrity"],"ok"); self.assertTrue(diagnostics["writable"])
 
+    def test_local_backup_can_be_restored_and_deleted(self):
+        self.post("/api/profile",{"first_name":"Avant"})
+        _, created=self.post("/api/backup",{})
+        self.post("/api/profile",{"first_name":"Après"})
+        status, result=self.post("/api/backups/restore-local",{"filename":created["filename"]})
+        self.assertEqual(status,200); self.assertIn("safety_backup",result)
+        _, profile, _=self.get("/api/profile")
+        self.assertEqual(json.loads(profile)["first_name"],"Avant")
+        status,_=self.post("/api/backups/delete",{"filename":created["filename"]})
+        self.assertEqual(status,200)
+        _, backups, _=self.get("/api/backups")
+        self.assertNotIn(created["filename"],[item["filename"] for item in json.loads(backups)])
+
     def test_offer_can_be_created_then_updated_over_http(self):
         status, created = self.post("/api/offers", {"title": "Agent", "company": "Test"})
         self.assertEqual(status, 201)

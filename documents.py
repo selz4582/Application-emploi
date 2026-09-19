@@ -171,6 +171,12 @@ def backup_path(backup_dir: Path, filename: str) -> Path:
     return path
 
 
+def delete_backup(backup_dir: Path, filename: str) -> None:
+    """Supprime uniquement une archive explicitement sélectionnée dans le dossier local."""
+    path = backup_path(backup_dir, filename)
+    path.unlink()
+
+
 def restore_backup(store, data_dir: Path, backup_dir: Path, filename: str, encoded: str) -> dict:
     """Vérifie puis restaure une archive, après une sauvegarde de sécurité automatique."""
     if Path(filename).suffix.lower() != ".zip": raise ValueError("La sauvegarde doit être un fichier ZIP")

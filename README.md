@@ -58,6 +58,8 @@ son manifeste, ses chemins et l'intégrité de SQLite, puis crée automatiquemen
 sauvegarde de sécurité des données actuelles avant leur remplacement.
 Les archives locales sont listées dans l'application avec leur taille et leur état de
 validité. Elles peuvent être téléchargées pour être conservées sur un autre support.
+Une archive locale valide peut aussi être restaurée directement, sans devoir la
+sélectionner de nouveau, ou supprimée après une confirmation explicite.
 Le bouton **Vérifier les données** contrôle l'intégrité de la base, l'accès en écriture,
 la version de Python utilisée et le nombre de sauvegardes disponibles.
 
