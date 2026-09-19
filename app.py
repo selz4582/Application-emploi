@@ -8,6 +8,7 @@ from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import SireneConnector
 from documents import backup_path, create_backup, delete_backup, delete_resume, export_applications_csv, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
 
+APP_NAME="Carnet Emploi 42"
 ROOT=Path(__file__).parent; DATA=ROOT/"data"; store=Store(DATA/"emploi.sqlite3")
 
 class Handler(SimpleHTTPRequestHandler):
@@ -162,16 +163,16 @@ def run_server(port=8765, open_browser=True):
     url=f"http://127.0.0.1:{port}"
     try: server=ThreadingHTTPServer(("127.0.0.1",port),Handler)
     except OSError as exc:
-        raise RuntimeError(f"Impossible de démarrer sur le port {port}. Fermez l'autre fenêtre Cap Emploi puis réessayez.") from exc
+        raise RuntimeError(f"Impossible de démarrer sur le port {port}. Fermez l'autre fenêtre {APP_NAME} puis réessayez.") from exc
     print("="*58)
-    print(" Cap Emploi 42 est démarré correctement")
+    print(f" {APP_NAME} est démarré correctement")
     print(f" Ouvrez : {url}")
     print(" Les codes HTTP 200 signifient que tout fonctionne.")
     print(" Fermez cette fenêtre ou appuyez sur Ctrl+C pour arrêter.")
     print("="*58,flush=True)
     if open_browser: threading.Timer(.6,lambda:webbrowser.open(url)).start()
     try: server.serve_forever()
-    except KeyboardInterrupt: print("\nCap Emploi 42 arrêté.")
+    except KeyboardInterrupt: print(f"\n{APP_NAME} arrêté.")
     finally: server.server_close()
 
 if __name__=="__main__":

@@ -44,7 +44,7 @@ class HttpSmokeTests(unittest.TestCase):
     def test_main_page_and_empty_api_routes_are_really_successful(self):
         status, body, content_type = self.get("/")
         self.assertEqual(status, 200); self.assertEqual(content_type, "text/html")
-        self.assertIn(b"Cap Emploi", body)
+        self.assertIn(b"Carnet Emploi", body)
         for path in ("/api/establishments", "/api/contacts", "/api/trash", "/api/offers"):
             status, body, content_type = self.get(path)
             self.assertEqual(status, 200, path); self.assertEqual(content_type, "application/json")

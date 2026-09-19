@@ -113,7 +113,7 @@ def delete_resume(store, documents_dir: Path, resume_id: int) -> None:
 def create_backup(store, data_dir: Path, backup_dir: Path) -> Path:
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    target = backup_dir / f"cap-emploi-42-{stamp}.zip"
+    target = backup_dir / f"carnet-emploi-42-{stamp}.zip"
     snapshot = data_dir / f".snapshot-{stamp}.sqlite3"
     source = sqlite3.connect(store.path)
     destination = sqlite3.connect(snapshot)

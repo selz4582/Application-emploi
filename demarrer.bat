@@ -1,5 +1,5 @@
 @echo off
-title Cap Emploi 42
+title Carnet Emploi 42
 cd /d "%~dp0"
 where py >nul 2>nul
 if %errorlevel%==0 (

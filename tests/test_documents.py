@@ -69,6 +69,7 @@ class DocumentTests(unittest.TestCase):
         self.add_resume()
         first = create_backup(self.store, self.data, self.data / "backups")
         second = create_backup(self.store, self.data, self.data / "backups")
+        self.assertTrue(first.name.startswith("carnet-emploi-42-"))
         self.assertNotEqual(first, second); self.assertEqual(verify_backup(first)["format"], 1)
         with zipfile.ZipFile(first) as archive: self.assertTrue(any(x.startswith("documents/") for x in archive.namelist()))
         listed=list_backups(self.data/"backups")

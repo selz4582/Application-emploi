@@ -1,4 +1,4 @@
-"""Domaine et persistance locale de Cap Emploi 42."""
+"""Domaine et persistance locale de Carnet Emploi 42."""
 from __future__ import annotations
 
 import json

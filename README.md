@@ -1,7 +1,9 @@
-# Cap Emploi 42
+# Carnet Emploi 42
 
 Application locale, mono-utilisateur, d'aide à la recherche d'emploi dans la Loire.
 Elle fonctionne avec Python 3 et SQLite, sans service cloud ni écran de connexion.
+Le nom reflète un carnet personnel et ne présente pas l'application comme un service
+institutionnel. Les règles de nommage sont détaillées dans [`docs/nomenclature.md`](docs/nomenclature.md).
 
 ## Démarrage (Windows 11)
 
@@ -12,7 +14,7 @@ automatiquement sur <http://127.0.0.1:8765>. Les données sont créées dans
 Un code HTTP `200` signifie **succès**, et non erreur. Les requêtes réussies ne sont plus
 affichées dans la console afin de ne pas inquiéter l'utilisateur ; seules les véritables
 erreurs HTTP (`400`, `404`, `500`…) y apparaissent. Si le port est déjà utilisé, fermez
-l'ancienne fenêtre Cap Emploi avant de relancer `demarrer.bat`.
+l'ancienne fenêtre Carnet Emploi avant de relancer `demarrer.bat`.
 
 ## Développement
 
