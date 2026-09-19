@@ -114,5 +114,19 @@ class HttpSmokeTests(unittest.TestCase):
         status,_=self.post(f"/api/contacts/{created['id']}/delete",{})
         self.assertEqual(status,200)
 
+    def test_spontaneous_duplicate_requires_confirmation_and_keeps_resume(self):
+        company=app.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",))
+        establishment=app.store.execute("INSERT INTO establishments(company_id,name,postcode) VALUES(?,?,?)",(company,"Test Loire","42000"))
+        resume=app.store.execute("INSERT INTO resumes(filename,path,created_at,preferred) VALUES(?,?,?,?)",("cv.docx","cv.docx","2026-09-18",1))
+        app.store.execute("INSERT INTO applications(establishment_id,position,created_at) VALUES(?,?,?)",(establishment,"Agent","2026-09-18"))
+        payload={"position":"Agent","establishment_ids":[establishment],"contact_ids":{},"resume_id":resume}
+        status, warning=self.post("/api/spontaneous",payload)
+        self.assertEqual(status,200); self.assertTrue(warning["confirmation_required"])
+        self.assertEqual(len(app.store.rows("SELECT id FROM applications")),1)
+        status, created=self.post("/api/spontaneous",{**payload,"confirm_duplicates":True})
+        self.assertEqual(status,201); self.assertEqual(len(created["applications"]),1)
+        row=app.store.rows("SELECT resume_id FROM applications ORDER BY id DESC LIMIT 1")[0]
+        self.assertEqual(row["resume_id"],resume)
+
 
 if __name__ == "__main__": unittest.main()

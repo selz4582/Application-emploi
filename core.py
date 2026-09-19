@@ -402,4 +402,6 @@ def build_email(position: str, candidate: str, establishment: str, motivation: s
     return {"subject":f"Candidature – {position} – {candidate}", "body":"\n".join(x for x in lines if x)[:4000]}
 
 def duplicate_candidates(store: Store, establishment_id: int, position: str, email: str):
-    return store.rows("""SELECT a.id,a.position,a.email_to,a.sent_at FROM applications a WHERE a.establishment_id=? AND (lower(a.position)=lower(?) OR lower(a.email_to)=lower(?))""", (establishment_id,position,email))
+    return store.rows("""SELECT a.id,a.position,a.email_to,a.sent_at FROM applications a
+                       WHERE a.establishment_id=? AND (lower(a.position)=lower(?) OR (?<>'' AND lower(a.email_to)=lower(?)))""",
+                      (establishment_id,position,email,email))

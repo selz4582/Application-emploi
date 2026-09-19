@@ -42,6 +42,7 @@ class DomainTests(unittest.TestCase):
     def test_duplicates(self):
         cid=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Test",)); eid=self.store.execute("INSERT INTO establishments(company_id,name,postcode,city) VALUES(?,?,?,?)",(cid,"Test Loire","42000","Saint-Étienne")); self.store.execute("INSERT INTO applications(establishment_id,position,email_to,created_at) VALUES(?,?,?,?)",(eid,"Agent","rh@test.fr","2026-01-01"))
         self.assertEqual(len(duplicate_candidates(self.store,eid,"Agent","autre@test.fr")),1)
+        self.assertEqual(duplicate_candidates(self.store,eid,"Comptable",""),[])
     def test_sirene_normalization_active_establishment(self):
         x=SireneConnector.normalize({"siren":"1","siret":"12","etatAdministratifEtablissement":"A","uniteLegale":{"denominationUniteLegale":"ACME"},"adresseEtablissement":{"codePostalEtablissement":"42000","libelleCommuneEtablissement":"SAINT-ETIENNE"}})
         self.assertTrue(x["active"]); self.assertEqual(x["postcode"],"42000")

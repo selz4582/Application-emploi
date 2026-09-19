@@ -37,6 +37,9 @@ calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais p�
 Chaque candidature possède un dossier local permettant de relire le message, la lettre,
 le destinataire et le CV. L'application n'envoie aucun courriel : le statut « envoyée »
 ne peut être confirmé qu'après validation explicite des trois contrôles humains.
+Pour une candidature spontanée, le CV peut être choisi avant la création des brouillons.
+Si une candidature similaire existe déjà, aucun nouveau brouillon n'est créé avant une
+confirmation explicite de l'utilisateur.
 Les contacts doivent provenir d'une page publique de l'établissement. Les adresses
 personnelles sont refusées et la source reste enregistrée pour pouvoir être vérifiée.
 Ils peuvent être corrigés, désactivés, réactivés ou supprimés. Une source contrôlée

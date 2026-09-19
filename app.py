@@ -146,14 +146,24 @@ class Handler(SimpleHTTPRequestHandler):
             if p=="/api/spontaneous":
                 position=d.get("position","").strip()
                 if not position: raise ValueError("Un poste précis est obligatoire")
+                establishment_ids=list(dict.fromkeys(d.get("establishment_ids",[])))
+                if not establishment_ids: raise ValueError("Sélectionnez au moins un établissement")
+                resume_id=d.get("resume_id") or None
+                if resume_id is not None and not store.rows("SELECT id FROM resumes WHERE id=?",(resume_id,)):
+                    raise ValueError("CV introuvable")
                 profile=store.rows("SELECT * FROM profile WHERE id=1"); candidate=((profile[0].get("first_name","")+" "+profile[0].get("last_name","")).strip() if profile else "Candidat")
-                made=[]; warnings=[]
-                for eid in d.get("establishment_ids",[]):
+                targets=[]; warnings=[]
+                for eid in establishment_ids:
                     est=store.rows("SELECT * FROM establishments WHERE id=?",(eid,))
-                    if not est: continue
-                    contacts=store.rows("SELECT * FROM contacts WHERE establishment_id=? ORDER BY confidence DESC",(eid,)); chosen=next((x for x in contacts if x["id"]==d.get("contact_ids",{}).get(str(eid))),None)
+                    if not est: raise ValueError("Un établissement sélectionné est introuvable")
+                    contacts=store.rows("SELECT * FROM contacts WHERE establishment_id=? AND active=1 ORDER BY confidence DESC",(eid,)); chosen=next((x for x in contacts if x["id"]==d.get("contact_ids",{}).get(str(eid))),None)
                     email=chosen["email"] if chosen else ""; warnings += duplicate_candidates(store,eid,position,email)
-                    draft=build_email(position,candidate,est[0]["name"],d.get("motivation","")); aid=store.execute("INSERT INTO applications(establishment_id,position,resume_id,letter,email_to,email_subject,email_body,checklist_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(eid,position,d.get("resume_id"),d.get("letter",""),email,draft["subject"],draft["body"],json.dumps({"destinataire_verifie":bool(chosen),"champs_sensibles_vides":True,"validation_humaine":False}),now())); made.append(aid)
+                    targets.append((eid,est[0],chosen,email))
+                if warnings and not d.get("confirm_duplicates"):
+                    return self.send_json({"confirmation_required":True,"duplicate_warnings":warnings,"applications":[]})
+                made=[]
+                for eid,est,chosen,email in targets:
+                    draft=build_email(position,candidate,est["name"],d.get("motivation","")); aid=store.execute("INSERT INTO applications(establishment_id,position,resume_id,letter,email_to,email_subject,email_body,checklist_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(eid,position,resume_id,d.get("letter",""),email,draft["subject"],draft["body"],json.dumps({"destinataire_verifie":bool(chosen),"champs_sensibles_vides":True,"validation_humaine":False}),now())); made.append(aid)
                 return self.send_json({"applications":made,"duplicate_warnings":warnings},201)
             raise ValueError("Route inconnue")
         except (ValueError,RuntimeError) as e: return self.send_json({"error":str(e)},400)
