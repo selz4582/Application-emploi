@@ -51,7 +51,11 @@ class GoogleAuth:
         identity=self._get_json(TOKENINFO_URL+"?"+urllib.parse.urlencode({"id_token":id_token}))
         if identity.get("aud")!=self.settings.value("google_client_id") or identity.get("iss") not in {"accounts.google.com","https://accounts.google.com"}: raise ValueError("La preuve d'identité Google est invalide")
         if str(identity.get("email_verified","")).lower()!="true": raise ValueError("L'adresse Google n'est pas vérifiée")
-        return {"email":identity.get("email", ""),"name":identity.get("name", ""),"picture":identity.get("picture", "")}
+        email=str(identity.get("email","")).strip().lower()
+        allowed=self.settings.value("google_allowed_email").strip().lower()
+        if allowed and email!=allowed: raise ValueError("Ce compte Google n'est pas autorisé pour cette application")
+        if not allowed: self.settings.update({"google_allowed_email":email})
+        return {"email":email,"name":identity.get("name", ""),"picture":identity.get("picture", "")}
 
     def session_cookie(self, identity):
         payload={"email":identity["email"],"name":identity.get("name", ""),"picture":identity.get("picture", ""),"exp":int(time.time()+SESSION_TTL_SECONDS)}

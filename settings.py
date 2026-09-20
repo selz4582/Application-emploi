@@ -13,6 +13,7 @@ ALLOWED_SETTINGS = {
     "external_backup_directory": "CARNET_EMPLOI_BACKUP_DIR",
     "google_client_id": "GOOGLE_CLIENT_ID",
     "google_client_secret": "GOOGLE_CLIENT_SECRET",
+    "google_allowed_email": "GOOGLE_ALLOWED_EMAIL",
 }
 MAX_SETTING_LENGTH = 2048
 

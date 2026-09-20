@@ -35,3 +35,11 @@ class GoogleAuthTests(unittest.TestCase):
         url=self.auth.authorization_url(); state=parse_qs(urlparse(url).query)["state"][0]
         with patch.object(self.auth,"_post_json",return_value={"id_token":"proof"}),patch.object(self.auth,"_get_json",return_value={"aud":"other","iss":"https://accounts.google.com","email_verified":"true"}):
             with self.assertRaisesRegex(ValueError,"invalide"): self.auth.complete("code",state)
+
+    def test_first_google_account_is_bound_and_another_account_is_rejected(self):
+        first_url=self.auth.authorization_url(); first_state=parse_qs(urlparse(first_url).query)["state"][0]
+        with patch.object(self.auth,"_post_json",return_value={"id_token":"one"}),patch.object(self.auth,"_get_json",return_value={"aud":"client.apps.googleusercontent.com","iss":"accounts.google.com","email_verified":True,"email":"Anne@Example.fr"}): self.auth.complete("code",first_state)
+        self.assertEqual(self.settings.value("google_allowed_email"),"anne@example.fr")
+        second_url=self.auth.authorization_url(); second_state=parse_qs(urlparse(second_url).query)["state"][0]
+        with patch.object(self.auth,"_post_json",return_value={"id_token":"two"}),patch.object(self.auth,"_get_json",return_value={"aud":"client.apps.googleusercontent.com","iss":"accounts.google.com","email_verified":True,"email":"other@example.fr"}):
+            with self.assertRaisesRegex(ValueError,"n'est pas autorisé"): self.auth.complete("code",second_state)

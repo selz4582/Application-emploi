@@ -43,8 +43,9 @@ class Handler(SimpleHTTPRequestHandler):
     def auth(self): return auth_manager(self.server.server_address[1])
     def identity(self): return self.auth().identity_from_headers(self.headers)
     def require_authentication(self,path,method):
-        public={"/api/health","/api/configuration/status","/api/configuration","/auth/status"}
-        if not self.auth().enabled or path.startswith("/auth/") or path in public: return True
+        public={"/api/health","/api/configuration/status","/auth/status"}
+        bootstrap=path=="/api/configuration" and method=="POST" and not self.auth().enabled
+        if not self.auth().enabled or path.startswith("/auth/") or path in public or bootstrap: return True
         if self.identity(): return True
         if path.startswith("/api/") or method=="POST": self.send_json({"error":"Connexion Google requise"},401)
         else: self.send_redirect("/auth/login")
@@ -135,7 +136,9 @@ class Handler(SimpleHTTPRequestHandler):
         if p.path=="/api/health":
             store.rows("SELECT 1"); return self.send_json({"status":"ok","application":APP_NAME})
         if p.path=="/api/configuration/status":
-            return self.send_json(settings().status())
+            status=settings().status()
+            if self.auth().enabled and not self.identity(): return self.send_json({"google_sso":True})
+            return self.send_json(status)
         if p.path=="/api/diagnostics":
             integrity=store.rows("PRAGMA integrity_check")[0]["integrity_check"]
             foreign_keys=store.rows("PRAGMA foreign_key_check")
@@ -281,6 +284,10 @@ def run_server(port=8765, open_browser=True):
     finally: server.server_close()
 
 if __name__=="__main__":
+    if "--disable-google-sso" in sys.argv:
+        settings().clear(["google_client_id","google_client_secret","google_allowed_email"])
+        print("Google SSO est désactivé. Relancez Carnet Emploi 42 normalement.")
+        raise SystemExit(0)
     try: run_server()
     except RuntimeError as exc:
         print(f"\nERREUR : {exc}")

@@ -19,9 +19,11 @@ WizardStyle=modern
 
 [Files]
 Source: "..\dist\CarnetEmploi42.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\desactiver-google-sso.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\Désactiver Google SSO (récupération)"; Filename: "{app}\desactiver-google-sso.bat"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Tasks]

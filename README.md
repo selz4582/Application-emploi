@@ -213,3 +213,16 @@ session pendant 30 jours : il n’est donc pas nécessaire de se reconnecter à 
 **Déconnexion** détruit immédiatement ce cookie. Les données, CV et candidatures restent sur
 l’ordinateur ; Google ne reçoit que le flux de connexion standard. Si les clés Google sont
 effacées, l’application revient au mode local sans écran de connexion.
+
+### Sécurité et récupération Google
+
+Lors de la première connexion réussie, l’adresse Google utilisée devient automatiquement le
+seul compte autorisé, sauf si une adresse a déjà été renseignée dans **Compte Google autorisé**.
+Un autre compte Google est alors refusé. Une fois SSO actif, la configuration et toutes les API
+métier exigent elles aussi une session valide ; l’API publique de statut ne révèle plus les
+autres connecteurs ni les chemins locaux.
+
+Si le client OAuth est erroné ou si le compte n’est plus accessible, fermer l’application puis
+lancer `desactiver-google-sso.bat`. Le script supprime uniquement les trois paramètres Google ;
+la base, les CV, les offres et les sauvegardes ne sont pas modifiés. L’installateur ajoute aussi
+ce raccourci de récupération dans le menu Démarrer.

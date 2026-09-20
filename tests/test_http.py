@@ -109,6 +109,8 @@ class HttpSmokeTests(unittest.TestCase):
             self.assertEqual(caught.exception.code,401); error=json.loads(caught.exception.read()); self.assertIn("Google",error["error"]); caught.exception.close()
             status,body,_=self.get("/auth/status"); payload=json.loads(body)
             self.assertEqual(status,200); self.assertTrue(payload["enabled"]); self.assertFalse(payload["authenticated"]); self.assertNotIn("secret",body.decode())
+            _,body,_=self.get("/api/configuration/status"); self.assertEqual(json.loads(body),{"google_sso":True})
+            status,error=self.post_error("/api/configuration",{"values":{"google_client_secret":"replacement"}}); self.assertEqual(status,401)
         finally: app.settings().clear(["google_client_id","google_client_secret"])
 
     def test_csv_export_can_be_downloaded(self):
