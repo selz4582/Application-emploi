@@ -1,3 +1,4 @@
+import http.client
 import json
 import tempfile
 import threading
@@ -58,8 +59,10 @@ class HttpSmokeTests(unittest.TestCase):
         finally: error.close()
 
     def test_main_page_and_empty_api_routes_are_really_successful(self):
-        status, body, content_type = self.get("/")
+        with urllib.request.urlopen(self.base+"/") as response:
+            status=response.status; body=response.read(); content_type=response.headers.get_content_type(); headers=response.headers
         self.assertEqual(status, 200); self.assertEqual(content_type, "text/html")
+        self.assertEqual(headers["X-Frame-Options"],"DENY"); self.assertEqual(headers["X-Content-Type-Options"],"nosniff"); self.assertIn("default-src 'self'",headers["Content-Security-Policy"])
         self.assertIn(b"Carnet Emploi", body)
         self.assertIn(b'class="skip-link"',body); self.assertIn(b'aria-label="Navigation principale"',body)
         self.assertIn(b'/common.js',body); self.assertNotIn(b'data-page="mockups"',body)
@@ -67,6 +70,15 @@ class HttpSmokeTests(unittest.TestCase):
             status, body, content_type = self.get(path)
             self.assertEqual(status, 200, path); self.assertEqual(content_type, "application/json")
             self.assertEqual(json.loads(body), [])
+
+    def test_dns_rebinding_host_and_cross_origin_posts_are_rejected(self):
+        port=self.server.server_address[1]
+        connection=http.client.HTTPConnection("127.0.0.1",port)
+        connection.putrequest("GET","/api/health",skip_host=True); connection.putheader("Host","evil.example"); connection.endheaders()
+        response=connection.getresponse(); self.assertEqual(response.status,421); response.read(); connection.close()
+        connection=http.client.HTTPConnection("127.0.0.1",port)
+        body=b"{}"; connection.putrequest("POST","/api/maintenance"); connection.putheader("Content-Type","application/json"); connection.putheader("Content-Length",str(len(body))); connection.putheader("Origin","https://evil.example"); connection.endheaders(body)
+        response=connection.getresponse(); self.assertEqual(response.status,403); self.assertIn("Origine",json.loads(response.read())["error"]); connection.close()
 
     def test_statistics_route_returns_successful_json(self):
         status, body, _ = self.get("/api/statistics?period=month")

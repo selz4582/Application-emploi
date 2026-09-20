@@ -26,6 +26,29 @@ def auth_manager(port):
     return AUTH_MANAGERS[key]
 
 class Handler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options","nosniff")
+        self.send_header("X-Frame-Options","DENY")
+        self.send_header("Referrer-Policy","no-referrer")
+        self.send_header("Permissions-Policy","camera=(), microphone=(), geolocation=()")
+        self.send_header("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+        if urlparse(self.path).path.startswith(("/api/","/auth/")): self.send_header("Cache-Control","no-store")
+        super().end_headers()
+
+    def validate_local_request(self,method):
+        host=self.headers.get("Host","")
+        try: parsed_host=urlparse("//"+host); hostname=parsed_host.hostname; port=parsed_host.port or 80
+        except ValueError: hostname=None; port=None
+        expected_port=self.server.server_address[1]
+        if hostname not in {"127.0.0.1","localhost"} or port!=expected_port:
+            self.send_json({"error":"Hôte local non autorisé"},421); return False
+        origin=self.headers.get("Origin","")
+        if method=="POST" and origin:
+            try: parsed_origin=urlparse(origin); origin_port=parsed_origin.port or (443 if parsed_origin.scheme=="https" else 80)
+            except ValueError: parsed_origin=None; origin_port=None
+            if not parsed_origin or parsed_origin.scheme!="http" or parsed_origin.hostname not in {"127.0.0.1","localhost"} or origin_port!=expected_port:
+                self.send_json({"error":"Origine de requête non autorisée"},403); return False
+        return True
     def log_request(self, code="-", size="-"):
         """N'affiche que les vraies erreurs HTTP, pas les réponses 200 normales."""
         try: status = int(code)
@@ -67,6 +90,7 @@ class Handler(SimpleHTTPRequestHandler):
                 for item in value: check(item,key)
         check(data); return data
     def do_GET(self):
+        if not self.validate_local_request("GET"): return None
         with REQUEST_LOCK:
             path=urlparse(self.path).path
             if path.startswith("/auth/"): return self.handle_auth_GET()
@@ -152,6 +176,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not target.is_file(): return self.send_error(404)
         body=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mimetypes.guess_type(target.name)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
+        if not self.validate_local_request("POST"): return None
         with REQUEST_LOCK:
             path=urlparse(self.path).path
             if not self.require_authentication(path,"POST"): return None

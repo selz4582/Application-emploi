@@ -226,3 +226,12 @@ Si le client OAuth est erroné ou si le compte n’est plus accessible, fermer l
 lancer `desactiver-google-sso.bat`. Le script supprime uniquement les trois paramètres Google ;
 la base, les CV, les offres et les sauvegardes ne sont pas modifiés. L’installateur ajoute aussi
 ce raccourci de récupération dans le menu Démarrer.
+
+### Protection du serveur local
+
+Le serveur refuse désormais les en-têtes `Host` qui ne ciblent pas explicitement
+`127.0.0.1` ou `localhost` sur le port actif, ce qui réduit les attaques de type DNS rebinding.
+Les écritures provenant d’une origine web différente sont également refusées. Toutes les
+réponses ajoutent une politique CSP restrictive, l’interdiction d’intégration dans une iframe,
+`nosniff`, une politique de référent vide et la désactivation des permissions caméra, microphone
+et géolocalisation. Les réponses API et d’authentification ne sont jamais mises en cache.
