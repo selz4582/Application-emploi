@@ -7,6 +7,7 @@ from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import FranceTravailConnector, SireneConnector
 from documents import backup_path, create_backup, create_external_backup, delete_backup, delete_resume, export_applications_csv, export_path, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
+from settings import SettingsStore
 
 APP_NAME="Carnet Emploi 42"
 BROWSER_OPEN_DELAY=10
@@ -14,6 +15,8 @@ BUNDLE_ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).parent))
 APP_DIR=Path(sys.executable).parent if getattr(sys,"frozen",False) else Path(__file__).parent
 DEFAULT_DATA=(Path(os.getenv("LOCALAPPDATA",APP_DIR))/APP_NAME/"data") if getattr(sys,"frozen",False) else APP_DIR/"data"
 STATIC_ROOT=BUNDLE_ROOT/"static"; DATA=Path(os.getenv("CARNET_EMPLOI_DATA_DIR",DEFAULT_DATA)); store=Store(DATA/"emploi.sqlite3"); REQUEST_LOCK=threading.RLock()
+
+def settings(): return SettingsStore(DATA/"configuration.json")
 
 class Handler(SimpleHTTPRequestHandler):
     def log_request(self, code="-", size="-"):
@@ -88,11 +91,11 @@ class Handler(SimpleHTTPRequestHandler):
         if p.path=="/api/health":
             store.rows("SELECT 1"); return self.send_json({"status":"ok","application":APP_NAME})
         if p.path=="/api/configuration/status":
-            return self.send_json({"france_travail":bool(os.getenv("FRANCE_TRAVAIL_CLIENT_ID","").strip() and os.getenv("FRANCE_TRAVAIL_CLIENT_SECRET","").strip()),"insee":bool(os.getenv("INSEE_API_TOKEN","").strip()),"external_backup":bool(os.getenv("CARNET_EMPLOI_BACKUP_DIR","").strip()),"external_backup_directory":os.getenv("CARNET_EMPLOI_BACKUP_DIR","").strip()})
+            return self.send_json(settings().status())
         if p.path=="/api/diagnostics":
             integrity=store.rows("PRAGMA integrity_check")[0]["integrity_check"]
             foreign_keys=store.rows("PRAGMA foreign_key_check")
-            external=os.getenv("CARNET_EMPLOI_BACKUP_DIR","").strip()
+            external=settings().value("external_backup_directory")
             return self.send_json({"status":"ok" if integrity=="ok" and not foreign_keys else "error","python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"foreign_key_errors":len(foreign_keys),"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK),"external_backup_directory":external})
         return self.serve_static(p.path)
     def serve_static(self,path):
@@ -107,6 +110,10 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             d=self.body(); p=urlparse(self.path).path
             if p=="/api/profile": store.upsert_profile(d); return self.send_json({"ok":True,"scores_recalculated":store.recalculate_offer_scores()})
+            if p=="/api/configuration":
+                settings().update(d.get("values",{})); return self.send_json(settings().status())
+            if p=="/api/configuration/clear":
+                settings().clear(d.get("keys",[])); return self.send_json(settings().status())
             if p=="/api/offers": return self.send_json(store.create_offer(d),201)
             if p=="/api/offers/recalculate": return self.send_json({"count":store.recalculate_offer_scores()})
             if p.startswith("/api/offers/") and p.endswith("/update"):
@@ -137,7 +144,7 @@ class Handler(SimpleHTTPRequestHandler):
             if p=="/api/backup":
                 path=create_backup(store,DATA,DATA/"backups"); return self.send_json({"filename":path.name,"path":str(path)})
             if p=="/api/backup/external":
-                directory=os.getenv("CARNET_EMPLOI_BACKUP_DIR","").strip()
+                directory=settings().value("external_backup_directory")
                 if not directory: raise ValueError("Configurez CARNET_EMPLOI_BACKUP_DIR avant d'utiliser la sauvegarde externe")
                 path=create_external_backup(store,DATA,Path(directory)); return self.send_json({"filename":path.name,"path":str(path)})
             if p=="/api/backup/restore":
@@ -167,9 +174,9 @@ class Handler(SimpleHTTPRequestHandler):
                 store.set_establishment_active(int(p.split("/")[3]),bool(d.get("active"))); return self.send_json({"ok":True})
             if p.startswith("/api/establishments/") and p.endswith("/delete"):
                 store.delete_establishment(int(p.split("/")[3])); return self.send_json({"ok":True})
-            if p=="/api/sirene/search": return self.send_json(SireneConnector(os.getenv("INSEE_API_TOKEN","")).search_loire(d.get("query",""),d.get("workforce",""),d.get("limit",50)))
+            if p=="/api/sirene/search": return self.send_json(SireneConnector(settings().value("insee_api_token")).search_loire(d.get("query",""),d.get("workforce",""),d.get("limit",50)))
             if p=="/api/france-travail/search":
-                connector=FranceTravailConnector(os.getenv("FRANCE_TRAVAIL_CLIENT_ID",""),os.getenv("FRANCE_TRAVAIL_CLIENT_SECRET",""))
+                connector=FranceTravailConnector(settings().value("france_travail_client_id"),settings().value("france_travail_client_secret"))
                 return self.send_json(connector.search_loire(d.get("keyword",""),d.get("city",""),d.get("limit",20)))
             if p=="/api/contacts":
                 return self.send_json({"id":store.add_public_contact(d)},201)

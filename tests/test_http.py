@@ -92,6 +92,16 @@ class HttpSmokeTests(unittest.TestCase):
         payload=json.loads(body); self.assertEqual(status,200); self.assertTrue(payload["france_travail"]); self.assertTrue(payload["insee"]); self.assertTrue(payload["external_backup"])
         self.assertNotIn("tres-secret",body.decode()); self.assertNotIn("jeton-secret",body.decode())
 
+    def test_configuration_can_be_saved_once_and_cleared_without_exposing_secrets(self):
+        values={"france_travail_client_id":"client","france_travail_client_secret":"tres-secret","insee_api_token":"jeton-secret","external_backup_directory":str(Path(self.temp.name)/"usb")}
+        with patch.dict("os.environ",{"FRANCE_TRAVAIL_CLIENT_ID":"","FRANCE_TRAVAIL_CLIENT_SECRET":"","INSEE_API_TOKEN":"","CARNET_EMPLOI_BACKUP_DIR":""}):
+            status,result=self.post("/api/configuration",{"values":values})
+            self.assertEqual(status,200); self.assertTrue(result["france_travail"]); self.assertTrue(result["insee"])
+            self.assertNotIn("tres-secret",json.dumps(result)); self.assertNotIn("jeton-secret",json.dumps(result))
+            self.assertTrue((app.DATA/"configuration.json").is_file())
+            status,result=self.post("/api/configuration/clear",{"keys":list(values)})
+        self.assertEqual(status,200); self.assertFalse(result["france_travail"]); self.assertFalse(result["insee"])
+
     def test_csv_export_can_be_downloaded(self):
         app.store.execute("INSERT INTO applications(position,created_at) VALUES(?,?)",("Agent","2026-09-19"))
         status,created=self.post("/api/export/csv",{})

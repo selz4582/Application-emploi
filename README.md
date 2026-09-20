@@ -161,3 +161,18 @@ L’écran **Mon profil** indique uniquement si France Travail, l’INSEE et la 
 sont configurés : les jetons et secrets ne sont jamais renvoyés au navigateur. Une panne
 réseau, un refus d’identifiants ou une réponse illisible produit désormais un message
 compréhensible sans afficher le détail technique ni les secrets.
+
+## Enregistrement unique des clés API
+
+L’écran **Mon profil** contient un formulaire pour enregistrer une seule fois l’identifiant et
+le secret France Travail, le jeton INSEE et le dossier de sauvegarde externe. Les valeurs sont
+écrites atomiquement dans `data/configuration.json` avec des permissions restreintes lorsque
+le système le permet. Les champs secrets ne sont jamais relus dans le navigateur, ne sont pas
+inclus dans les sauvegardes et peuvent être supprimés explicitement depuis le même écran.
+Les variables d’environnement restent prioritaires pour une installation administrée.
+
+Indeed ne propose pas ici de connecteur officiel configuré. L’application ne contourne pas
+les protections d’un site et ne lance pas de scraping susceptible de casser ou de violer ses
+conditions d’utilisation. Pour Indeed ou une autre source sans API autorisée, le parcours sûr
+reste la saisie dans **Mes offres** avec le lien original ; la notation et la préparation de la
+candidature fonctionnent ensuite normalement.
