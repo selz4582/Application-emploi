@@ -11,6 +11,8 @@ ALLOWED_SETTINGS = {
     "france_travail_client_secret": "FRANCE_TRAVAIL_CLIENT_SECRET",
     "insee_api_token": "INSEE_API_TOKEN",
     "external_backup_directory": "CARNET_EMPLOI_BACKUP_DIR",
+    "google_client_id": "GOOGLE_CLIENT_ID",
+    "google_client_secret": "GOOGLE_CLIENT_SECRET",
 }
 MAX_SETTING_LENGTH = 2048
 
@@ -63,6 +65,7 @@ class SettingsStore:
             "insee": bool(self.value("insee_api_token")),
             "external_backup": bool(external),
             "external_backup_directory": external,
+            "google_sso": bool(self.value("google_client_id") and self.value("google_client_secret")),
         }
 
     def _write(self, values: dict[str, str]) -> None:

@@ -102,6 +102,15 @@ class HttpSmokeTests(unittest.TestCase):
             status,result=self.post("/api/configuration/clear",{"keys":list(values)})
         self.assertEqual(status,200); self.assertFalse(result["france_travail"]); self.assertFalse(result["insee"])
 
+    def test_google_sso_configuration_protects_api_without_a_session(self):
+        app.settings().update({"google_client_id":"client.apps.googleusercontent.com","google_client_secret":"secret"})
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as caught: self.get("/api/offers")
+            self.assertEqual(caught.exception.code,401); error=json.loads(caught.exception.read()); self.assertIn("Google",error["error"]); caught.exception.close()
+            status,body,_=self.get("/auth/status"); payload=json.loads(body)
+            self.assertEqual(status,200); self.assertTrue(payload["enabled"]); self.assertFalse(payload["authenticated"]); self.assertNotIn("secret",body.decode())
+        finally: app.settings().clear(["google_client_id","google_client_secret"])
+
     def test_csv_export_can_be_downloaded(self):
         app.store.execute("INSERT INTO applications(position,created_at) VALUES(?,?)",("Agent","2026-09-19"))
         status,created=self.post("/api/export/csv",{})

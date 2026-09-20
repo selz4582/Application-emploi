@@ -194,3 +194,22 @@ un avertissement est affiché et la saisie manuelle reste disponible.
 La recherche et le préremplissage n’enregistrent rien : l’utilisateur doit sélectionner une
 offre, relire les champs puis confirmer avec **Enregistrer et évaluer**. La source et la
 référence sont conservées après modification.
+
+## Connexion Google SSO
+
+La connexion Google est facultative jusqu’à ce qu’un client OAuth soit enregistré. Pour
+l’activer, créer dans Google Cloud un client OAuth 2.0 de type **Application Web** et ajouter
+exactement cette URI de redirection autorisée :
+
+```text
+http://127.0.0.1:8765/auth/google/callback
+```
+
+Dans **Mon profil**, enregistrer une seule fois le Client OAuth Google et son secret. À la
+requête suivante, Carnet Emploi redirige vers Google. Le flux utilise OpenID Connect, un état
+anti-CSRF, PKCE et vérifie auprès de Google l’audience, l’émetteur, l’adresse et sa validation.
+Après la première connexion, un cookie local signé, `HttpOnly` et `SameSite=Lax` maintient la
+session pendant 30 jours : il n’est donc pas nécessaire de se reconnecter à chaque lancement.
+**Déconnexion** détruit immédiatement ce cookie. Les données, CV et candidatures restent sur
+l’ordinateur ; Google ne reçoit que le flux de connexion standard. Si les clés Google sont
+effacées, l’application revient au mode local sans écran de connexion.

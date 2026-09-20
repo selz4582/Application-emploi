@@ -17,3 +17,4 @@ dialog{width:min(900px,94vw);max-height:92vh;overflow:auto;border:1px solid var(
 .configuration-status .cards{grid-template-columns:repeat(3,minmax(150px,1fr))}.service-status{display:flex!important;align-items:center;gap:12px}.service-status b{font-size:1.5rem;color:var(--green)}.service-status.optional b{color:var(--muted)}.service-status small{display:block;color:var(--muted);margin-top:3px}@media(max-width:650px){.configuration-status .cards{grid-template-columns:1fr}}
 .external-import{margin-bottom:24px}.external-import code{overflow-wrap:anywhere}
 .source-choices{display:flex;flex-wrap:wrap;gap:8px 18px}.source-choices .check{margin:0}.external-import details{margin-top:18px}.external-import details summary{cursor:pointer;font-weight:700;color:var(--green)}
+.auth-user{font-size:.82rem;font-weight:700;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

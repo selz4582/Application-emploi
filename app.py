@@ -3,11 +3,13 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 import base64, json, mimetypes, os, threading, webbrowser
 import sys
+import html
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
 from documents import backup_path, create_backup, create_external_backup, delete_backup, delete_resume, export_applications_csv, export_path, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
 from settings import SettingsStore
+from auth import GoogleAuth
 
 APP_NAME="Carnet Emploi 42"
 BROWSER_OPEN_DELAY=10
@@ -17,6 +19,11 @@ DEFAULT_DATA=(Path(os.getenv("LOCALAPPDATA",APP_DIR))/APP_NAME/"data") if getatt
 STATIC_ROOT=BUNDLE_ROOT/"static"; DATA=Path(os.getenv("CARNET_EMPLOI_DATA_DIR",DEFAULT_DATA)); store=Store(DATA/"emploi.sqlite3"); REQUEST_LOCK=threading.RLock()
 
 def settings(): return SettingsStore(DATA/"configuration.json")
+AUTH_MANAGERS={}
+def auth_manager(port):
+    key=(str(DATA.resolve()),int(port))
+    if key not in AUTH_MANAGERS: AUTH_MANAGERS[key]=GoogleAuth(settings(),DATA,f"http://127.0.0.1:{port}")
+    return AUTH_MANAGERS[key]
 
 class Handler(SimpleHTTPRequestHandler):
     def log_request(self, code="-", size="-"):
@@ -27,6 +34,21 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_json(self,obj,status=200):
         body=json.dumps(obj,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+    def send_redirect(self,url,cookie=None):
+        self.send_response(302); self.send_header("Location",url)
+        if cookie: self.send_header("Set-Cookie",cookie)
+        self.send_header("Content-Length","0"); self.end_headers()
+    def send_html(self,body,status=200):
+        payload=body.encode(); self.send_response(status); self.send_header("Content-Type","text/html; charset=utf-8"); self.send_header("Content-Length",str(len(payload))); self.end_headers(); self.wfile.write(payload)
+    def auth(self): return auth_manager(self.server.server_address[1])
+    def identity(self): return self.auth().identity_from_headers(self.headers)
+    def require_authentication(self,path,method):
+        public={"/api/health","/api/configuration/status","/api/configuration","/auth/status"}
+        if not self.auth().enabled or path.startswith("/auth/") or path in public: return True
+        if self.identity(): return True
+        if path.startswith("/api/") or method=="POST": self.send_json({"error":"Connexion Google requise"},401)
+        else: self.send_redirect("/auth/login")
+        return False
     def send_file(self,path: Path,content_type="application/zip"):
         body=path.read_bytes(); self.send_response(200); self.send_header("Content-Type",content_type); self.send_header("Content-Disposition",f'attachment; filename="{path.name}"'); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def body(self):
@@ -44,7 +66,29 @@ class Handler(SimpleHTTPRequestHandler):
                 for item in value: check(item,key)
         check(data); return data
     def do_GET(self):
-        with REQUEST_LOCK: return self.handle_GET()
+        with REQUEST_LOCK:
+            path=urlparse(self.path).path
+            if path.startswith("/auth/"): return self.handle_auth_GET()
+            if not self.require_authentication(path,"GET"): return None
+            return self.handle_GET()
+    def handle_auth_GET(self):
+        parsed=urlparse(self.path); path=parsed.path; manager=self.auth()
+        try:
+            if path=="/auth/login":
+                if not manager.enabled: return self.send_html("<!doctype html><html lang='fr'><meta charset='utf-8'><title>Configuration requise</title><body><h1>Google SSO n’est pas configuré</h1><p>Ouvrez l’application locale puis renseignez le client Google dans Mon profil.</p><a href='/'>Retour à l’application</a></body></html>")
+                if self.identity(): return self.send_redirect("/")
+                return self.send_html("<!doctype html><html lang='fr'><meta charset='utf-8'><meta name='viewport' content='width=device-width'><title>Connexion · Carnet Emploi 42</title><body style='font-family:system-ui;max-width:560px;margin:10vh auto;padding:24px'><h1>Carnet Emploi 42</h1><p>Connectez-vous avec le compte Google autorisé pour ouvrir vos données locales.</p><p><a href='/auth/google/start' style='display:inline-block;padding:12px 18px;background:#176b52;color:white;border-radius:8px;text-decoration:none'>Continuer avec Google</a></p><small>La base et les CV restent sur cet ordinateur.</small></body></html>")
+            if path=="/auth/google/start": return self.send_redirect(manager.authorization_url())
+            if path=="/auth/google/callback":
+                query=parse_qs(parsed.query)
+                if query.get("error"): raise ValueError("Connexion Google annulée")
+                identity=manager.complete(query.get("code",[""])[0],query.get("state",[""])[0])
+                return self.send_redirect("/",manager.session_cookie(identity))
+            if path=="/auth/logout": return self.send_redirect("/auth/login",manager.clear_cookie())
+            if path=="/auth/status":
+                identity=self.identity(); return self.send_json({"enabled":manager.enabled,"authenticated":bool(identity),"identity":identity or {}})
+            return self.send_html("Page introuvable",404)
+        except ValueError as exc: return self.send_html(f"<!doctype html><html lang='fr'><meta charset='utf-8'><h1>Connexion impossible</h1><p>{html.escape(str(exc))}</p><a href='/auth/login'>Réessayer</a></html>",400)
     def handle_GET(self):
         p=urlparse(self.path)
         if p.path=="/api/dashboard": store.maintain(); return self.send_json(store.dashboard())
@@ -105,7 +149,10 @@ class Handler(SimpleHTTPRequestHandler):
         if not target.is_file(): return self.send_error(404)
         body=target.read_bytes(); self.send_response(200); self.send_header("Content-Type",mimetypes.guess_type(target.name)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
-        with REQUEST_LOCK: return self.handle_POST()
+        with REQUEST_LOCK:
+            path=urlparse(self.path).path
+            if not self.require_authentication(path,"POST"): return None
+            return self.handle_POST()
     def handle_POST(self):
         try:
             d=self.body(); p=urlparse(self.path).path
