@@ -2,6 +2,7 @@
 import json
 import urllib.parse
 import urllib.request
+import urllib.error
 
 
 class FranceTravailConnector:
@@ -18,8 +19,7 @@ class FranceTravailConnector:
             raise RuntimeError("Identifiants API France Travail absents : connecteur non activé")
         body = urllib.parse.urlencode({"grant_type":"client_credentials","client_id":self.client_id,"client_secret":self.client_secret,"scope":self.SCOPE}).encode()
         request = urllib.request.Request(self.TOKEN_URL, data=body, headers={"Content-Type":"application/x-www-form-urlencoded","User-Agent":"CarnetEmploi42/1.0"})
-        with urllib.request.urlopen(request, timeout=20) as response:
-            token = json.load(response).get("access_token", "")
+        token = _request_json(request, "France Travail").get("access_token", "")
         if not token: raise RuntimeError("L'API France Travail n'a pas fourni de jeton d'accès")
         return token
 
@@ -29,7 +29,7 @@ class FranceTravailConnector:
         if keyword.strip(): params["motsCles"] = keyword.strip()
         if city.strip(): params["commune"] = city.strip()
         request = urllib.request.Request(self.SEARCH_URL+"?"+urllib.parse.urlencode(params), headers={"Authorization":f"Bearer {self._token()}","Accept":"application/json","User-Agent":"CarnetEmploi42/1.0"})
-        with urllib.request.urlopen(request, timeout=20) as response: payload=json.load(response)
+        payload = _request_json(request, "France Travail")
         return [self.normalize(item) for item in payload.get("resultats", [])]
 
     @staticmethod
@@ -51,10 +51,25 @@ class SireneConnector:
         if workforce: clauses.append(f"trancheEffectifsEtablissement:{workforce}")
         url=self.BASE+"?"+urllib.parse.urlencode({"q":" AND ".join(clauses),"nombre":limit})
         req=urllib.request.Request(url,headers={"Authorization":f"Bearer {self.token}","Accept":"application/json","User-Agent":"CarnetEmploi42/1.0"})
-        with urllib.request.urlopen(req,timeout=20) as res: payload=json.load(res)
+        payload = _request_json(req, "INSEE")
         return [self.normalize(x) for x in payload.get("etablissements",[])]
 
     @staticmethod
     def normalize(x):
         u=x.get("uniteLegale",{}); a=x.get("adresseEtablissement",{})
         return {"siren":x.get("siren"),"siret":x.get("siret"),"company":u.get("denominationUniteLegale") or u.get("nomUniteLegale") or "Sans dénomination", "name":x.get("enseigne1Etablissement") or u.get("denominationUniteLegale") or "Établissement", "address":" ".join(str(a.get(k,"")) for k in ("numeroVoieEtablissement","typeVoieEtablissement","libelleVoieEtablissement")).strip(), "postcode":a.get("codePostalEtablissement",""), "city":a.get("libelleCommuneEtablissement",""), "workforce":x.get("trancheEffectifsEtablissement") or "Non renseigné", "active":x.get("etatAdministratifEtablissement")=="A"}
+
+
+def _request_json(request, service: str) -> dict:
+    """Traduit les pannes réseau/API en message compréhensible, sans exposer les secrets."""
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise RuntimeError(f"Identifiants {service} refusés. Vérifiez votre configuration") from exc
+        raise RuntimeError(f"Le service {service} répond avec l'erreur HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Le service {service} est temporairement inaccessible. Vérifiez la connexion Internet") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"La réponse du service {service} est illisible") from exc

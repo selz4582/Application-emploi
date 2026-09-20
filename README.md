@@ -152,3 +152,12 @@ des dialogues nommés et respecte la préférence de réduction des animations. 
 l’audit et la liste des contrôles manuels sont dans [`docs/accessibilite.md`](docs/accessibilite.md).
 Les fonctions communes de navigation, API, confirmation et échappement HTML sont isolées
 dans `static/common.js`; les parcours fonctionnels restent dans `static/app.js`.
+
+## Configuration guidée et état des services
+
+Sous Windows, lancer `configurer-connecteurs.bat` pour enregistrer les identifiants France
+Travail et le jeton INSEE dans les variables de l’utilisateur, puis redémarrer l’application.
+L’écran **Mon profil** indique uniquement si France Travail, l’INSEE et la sauvegarde externe
+sont configurés : les jetons et secrets ne sont jamais renvoyés au navigateur. Une panne
+réseau, un refus d’identifiants ou une réponse illisible produit désormais un message
+compréhensible sans afficher le détail technique ni les secrets.

@@ -1,4 +1,5 @@
 import io, json, tempfile, unittest
+import urllib.error
 from unittest.mock import patch
 from datetime import date
 from pathlib import Path
@@ -79,6 +80,10 @@ class DomainTests(unittest.TestCase):
         with patch("connectors.urllib.request.urlopen",side_effect=responses) as opened: rows=FranceTravailConnector("client","secret").search_loire("agent","42218",10)
         self.assertEqual(rows[0]["title"],"Agent"); self.assertEqual(opened.call_count,2)
         request=opened.call_args_list[1].args[0]; self.assertIn("departement=42",request.full_url); self.assertEqual(request.headers["Authorization"],"Bearer token")
+    def test_official_connector_network_errors_are_user_friendly(self):
+        with patch("connectors.urllib.request.urlopen",side_effect=urllib.error.URLError("secret technical detail")):
+            with self.assertRaisesRegex(RuntimeError,"temporairement inaccessible") as caught: FranceTravailConnector("client","secret").search_loire()
+        self.assertNotIn("secret technical detail",str(caught.exception))
     def test_maintenance_marks_no_reply_without_obsolete_reminder(self):
         self.store.execute("INSERT INTO applications(position,status,sent_at,followup_at,next_action,created_at) VALUES(?,?,?,?,?,?)",("Agent","Candidature envoyée","2026-01-01","2026-01-15","Relancer","2026-01-01"))
         self.assertEqual(self.store.maintain(date(2026,3,5)),0)

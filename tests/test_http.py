@@ -86,6 +86,12 @@ class HttpSmokeTests(unittest.TestCase):
         status, body, _=self.get("/api/health")
         self.assertEqual(status,200); self.assertEqual(json.loads(body)["application"],"Carnet Emploi 42")
 
+    def test_configuration_status_exposes_flags_but_never_secrets(self):
+        values={"FRANCE_TRAVAIL_CLIENT_ID":"client","FRANCE_TRAVAIL_CLIENT_SECRET":"tres-secret","INSEE_API_TOKEN":"jeton-secret","CARNET_EMPLOI_BACKUP_DIR":"/media/usb"}
+        with patch.dict("os.environ",values): status,body,_=self.get("/api/configuration/status")
+        payload=json.loads(body); self.assertEqual(status,200); self.assertTrue(payload["france_travail"]); self.assertTrue(payload["insee"]); self.assertTrue(payload["external_backup"])
+        self.assertNotIn("tres-secret",body.decode()); self.assertNotIn("jeton-secret",body.decode())
+
     def test_csv_export_can_be_downloaded(self):
         app.store.execute("INSERT INTO applications(position,created_at) VALUES(?,?)",("Agent","2026-09-19"))
         status,created=self.post("/api/export/csv",{})

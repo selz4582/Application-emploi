@@ -87,6 +87,8 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as e: return self.send_json({"error":str(e)},404)
         if p.path=="/api/health":
             store.rows("SELECT 1"); return self.send_json({"status":"ok","application":APP_NAME})
+        if p.path=="/api/configuration/status":
+            return self.send_json({"france_travail":bool(os.getenv("FRANCE_TRAVAIL_CLIENT_ID","").strip() and os.getenv("FRANCE_TRAVAIL_CLIENT_SECRET","").strip()),"insee":bool(os.getenv("INSEE_API_TOKEN","").strip()),"external_backup":bool(os.getenv("CARNET_EMPLOI_BACKUP_DIR","").strip()),"external_backup_directory":os.getenv("CARNET_EMPLOI_BACKUP_DIR","").strip()})
         if p.path=="/api/diagnostics":
             integrity=store.rows("PRAGMA integrity_check")[0]["integrity_check"]
             foreign_keys=store.rows("PRAGMA foreign_key_check")
