@@ -4,11 +4,12 @@ import json
 import tempfile
 import unittest
 import zipfile
+from datetime import date, timedelta
 from unittest.mock import patch
 from pathlib import Path
 
 from core import Store
-from documents import backup_path, create_backup, create_external_backup, decode_resume, delete_backup, delete_resume, export_applications_csv, export_path, extract_document_text, list_backups, restore_backup, save_resume, set_preferred_resume, verify_backup, verify_resume
+from documents import backup_path, create_backup, create_external_backup, decode_resume, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, extract_document_text, list_backups, restore_backup, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -111,6 +112,17 @@ class DocumentTests(unittest.TestCase):
         copied=create_external_backup(self.store,self.data,external)
         self.assertEqual(copied.parent,external.resolve()); self.assertEqual(verify_backup(copied)["format"],1)
         self.assertEqual(len(list_backups(self.data/"backups")),1)
+
+    def test_daily_automatic_backup_is_unique_and_retains_seven_days(self):
+        backups=self.data/"backups"
+        self.assertIsNone(ensure_automatic_backup(self.store,self.data,backups,date(2026,9,1)))
+        self.store.upsert_profile({"first_name":"Anne"})
+        first=ensure_automatic_backup(self.store,self.data,backups,date(2026,9,1))
+        self.assertEqual(ensure_automatic_backup(self.store,self.data,backups,date(2026,9,1)),first)
+        for offset in range(1,9): ensure_automatic_backup(self.store,self.data,backups,date(2026,9,1)+timedelta(days=offset))
+        automatic=list(backups.glob("carnet-emploi-42-auto-*.zip"))
+        self.assertEqual(len(automatic),7); self.assertTrue(all(verify_backup(path)["format"]==1 for path in automatic))
+        self.assertFalse(any("20260901" in path.name for path in automatic)); self.assertTrue(any("20260909" in path.name for path in automatic))
 
     def test_restore_rejects_an_invalid_database(self):
         stream=io.BytesIO()

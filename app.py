@@ -7,7 +7,7 @@ import html
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
-from documents import backup_path, create_backup, create_external_backup, delete_backup, delete_resume, export_applications_csv, export_path, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
+from documents import backup_path, create_backup, create_external_backup, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
 from settings import SettingsStore
 from auth import GoogleAuth
 
@@ -313,6 +313,11 @@ if __name__=="__main__":
         settings().clear(["google_client_id","google_client_secret","google_allowed_email"])
         print("Google SSO est désactivé. Relancez Carnet Emploi 42 normalement.")
         raise SystemExit(0)
+    try:
+        automatic=ensure_automatic_backup(store,DATA,DATA/"backups")
+        if automatic: print(f"Sauvegarde automatique vérifiée : {automatic.name}")
+    except (OSError,ValueError) as exc:
+        print(f"AVERTISSEMENT : sauvegarde automatique impossible : {exc}")
     try: run_server()
     except RuntimeError as exc:
         print(f"\nERREUR : {exc}")

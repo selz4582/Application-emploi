@@ -235,3 +235,12 @@ Les écritures provenant d’une origine web différente sont également refusé
 réponses ajoutent une politique CSP restrictive, l’interdiction d’intégration dans une iframe,
 `nosniff`, une politique de référent vide et la désactivation des permissions caméra, microphone
 et géolocalisation. Les réponses API et d’authentification ne sont jamais mises en cache.
+
+## Sauvegarde automatique quotidienne
+
+Au démarrage normal, si le carnet contient un profil, un CV, une offre ou une candidature,
+l’application vérifie qu’une sauvegarde automatique du jour existe. Elle en crée une si
+nécessaire avant d’ouvrir le serveur. Une seule archive automatique est conservée par jour et
+les sept journées les plus récentes sont gardées ; les sauvegardes manuelles et externes ne
+sont jamais supprimées par cette rotation. Une impossibilité de sauvegarder affiche un
+avertissement dans la console mais n’empêche pas l’accès aux données existantes.

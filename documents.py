@@ -12,7 +12,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -132,10 +132,10 @@ def delete_resume(store, documents_dir: Path, resume_id: int) -> None:
         path.unlink(missing_ok=True)
 
 
-def create_backup(store, data_dir: Path, backup_dir: Path) -> Path:
+def create_backup(store, data_dir: Path, backup_dir: Path, filename_prefix="carnet-emploi-42", stamp=None) -> Path:
     backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    target = backup_dir / f"carnet-emploi-42-{stamp}.zip"
+    stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    target = backup_dir / f"{filename_prefix}-{stamp}.zip"
     snapshot = data_dir / f".snapshot-{stamp}.sqlite3"
     source = sqlite3.connect(store.path)
     destination = sqlite3.connect(snapshot)
@@ -154,6 +154,22 @@ def create_backup(store, data_dir: Path, backup_dir: Path) -> Path:
     finally:
         snapshot.unlink(missing_ok=True)
     return target
+
+
+def ensure_automatic_backup(store, data_dir: Path, backup_dir: Path, current_day=None, keep=7) -> Path | None:
+    """Crée au plus une archive automatique par jour et conserve les plus récentes."""
+    current_day = current_day or date.today()
+    meaningful = sum(store.rows(f"SELECT count(*) AS total FROM {table}")[0]["total"] for table in ("profile","resumes","offers","applications"))
+    if not meaningful: return None
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    prefix=f"carnet-emploi-42-auto-{current_day.strftime('%Y%m%d')}"
+    existing=sorted(backup_dir.glob(prefix+"-*.zip"))
+    if existing: return existing[-1]
+    stamp=f"{current_day.strftime('%Y%m%d')}-{datetime.now().strftime('%H%M%S-%f')}"
+    created=create_backup(store,data_dir,backup_dir,"carnet-emploi-42-auto",stamp)
+    automatic=sorted(backup_dir.glob("carnet-emploi-42-auto-*.zip"),key=lambda path:path.name,reverse=True)
+    for obsolete in automatic[max(1,int(keep)):]: obsolete.unlink(missing_ok=True)
+    return created
 
 
 def create_external_backup(store, data_dir: Path, external_dir: Path) -> Path:
