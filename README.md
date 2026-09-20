@@ -176,3 +176,15 @@ les protections d’un site et ne lance pas de scraping susceptible de casser ou
 conditions d’utilisation. Pour Indeed ou une autre source sans API autorisée, le parcours sûr
 reste la saisie dans **Mes offres** avec le lien original ; la notation et la préparation de la
 candidature fonctionnent ensuite normalement.
+
+## Import ponctuel depuis les sites d’emploi
+
+Dans **Mes offres**, coller l’URL HTTPS d’une offre précise Indeed, HelloWork, Meteojob,
+Apec, Cadremploi, Monster, LinkedIn ou Welcome to the Jungle pour tenter un préremplissage.
+L’import est volontairement limité aux domaines reconnus, vérifie `robots.txt`, refuse les
+redirections vers un autre domaine, limite la réponse à 2 Mo et lit uniquement le bloc public
+standard `JobPosting` en JSON-LD. Il ne parcourt jamais les listes de résultats et ne contourne
+ni connexion, ni CAPTCHA, ni blocage. Si le site refuse l’accès, n’expose pas de données
+structurées ou change son format, l’application demande de revenir à la saisie manuelle.
+Le préremplissage n’enregistre rien : l’utilisateur doit relire les champs puis confirmer avec
+**Enregistrer et évaluer**. La source et la référence sont conservées après modification.

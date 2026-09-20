@@ -5,7 +5,7 @@ import base64, json, mimetypes, os, threading, webbrowser
 import sys
 from urllib.parse import urlparse, parse_qs
 from core import STATUSES, Store, build_email, duplicate_candidates, now
-from connectors import FranceTravailConnector, SireneConnector
+from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
 from documents import backup_path, create_backup, create_external_backup, delete_backup, delete_resume, export_applications_csv, export_path, list_backups, restore_backup, save_resume, set_preferred_resume, verify_resume
 from settings import SettingsStore
 
@@ -178,6 +178,8 @@ class Handler(SimpleHTTPRequestHandler):
             if p=="/api/france-travail/search":
                 connector=FranceTravailConnector(settings().value("france_travail_client_id"),settings().value("france_travail_client_secret"))
                 return self.send_json(connector.search_loire(d.get("keyword",""),d.get("city",""),d.get("limit",20)))
+            if p=="/api/external-offers/import":
+                return self.send_json(ExternalJobPageConnector().import_url(d.get("url","")))
             if p=="/api/contacts":
                 return self.send_json({"id":store.add_public_contact(d)},201)
             if p.startswith("/api/contacts/") and p.endswith("/update"):

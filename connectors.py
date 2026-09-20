@@ -1,8 +1,12 @@
 """Connecteurs officiels, jamais de scraping implicite."""
 import json
+import re
 import urllib.parse
 import urllib.request
 import urllib.error
+import urllib.robotparser
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlparse
 
 
 class FranceTravailConnector:
@@ -73,3 +77,100 @@ def _request_json(request, service: str) -> dict:
         raise RuntimeError(f"Le service {service} est temporairement inaccessible. Vérifiez la connexion Internet") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"La réponse du service {service} est illisible") from exc
+
+
+EXTERNAL_JOB_HOSTS = {
+    "fr.indeed.com": "Indeed",
+    "www.indeed.com": "Indeed",
+    "indeed.com": "Indeed",
+    "www.hellowork.com": "HelloWork",
+    "hellowork.com": "HelloWork",
+    "www.meteojob.com": "Meteojob",
+    "meteojob.com": "Meteojob",
+    "www.apec.fr": "Apec",
+    "apec.fr": "Apec",
+    "www.cadremploi.fr": "Cadremploi",
+    "cadremploi.fr": "Cadremploi",
+    "www.monster.fr": "Monster",
+    "monster.fr": "Monster",
+    "fr.linkedin.com": "LinkedIn",
+    "www.welcometothejungle.com": "Welcome to the Jungle",
+    "welcometothejungle.com": "Welcome to the Jungle",
+}
+EXTERNAL_USER_AGENT = "CarnetEmploi42/1.0 (+import manuel d'une offre)"
+MAX_EXTERNAL_PAGE_BYTES = 2 * 1024 * 1024
+
+
+class _JobPostingParser(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.capture=False; self.parts=[]; self.documents=[]
+    def handle_starttag(self, tag, attrs):
+        attributes=dict(attrs)
+        if tag.lower()=="script" and "ld+json" in attributes.get("type","").lower(): self.capture=True; self.parts=[]
+    def handle_data(self, data):
+        if self.capture: self.parts.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower()=="script" and self.capture:
+            self.capture=False
+            try: self.documents.append(json.loads("".join(self.parts)))
+            except json.JSONDecodeError: pass
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        target=urljoin(request.full_url,new_url)
+        if urlparse(target).scheme!="https" or urlparse(target).hostname not in EXTERNAL_JOB_HOSTS or urlparse(target).port not in {None,443}:
+            raise RuntimeError("La redirection de la page d'offre n'est pas autorisée")
+        return super().redirect_request(request,file_pointer,code,message,headers,target)
+
+
+class ExternalJobPageConnector:
+    """Import manuel d'une page autorisée exposant un JobPosting JSON-LD."""
+    def import_url(self, url: str) -> dict:
+        parsed=urlparse(str(url).strip())
+        if parsed.scheme!="https" or parsed.hostname not in EXTERNAL_JOB_HOSTS or parsed.port not in {None,443} or parsed.username or parsed.password:
+            raise ValueError("Utilisez le lien HTTPS d'un site d'emploi pris en charge")
+        service=EXTERNAL_JOB_HOSTS[parsed.hostname]
+        robots_url=f"https://{parsed.hostname}/robots.txt"
+        robots=urllib.robotparser.RobotFileParser(); robots.set_url(robots_url)
+        try:
+            robots_request=urllib.request.Request(robots_url,headers={"User-Agent":EXTERNAL_USER_AGENT})
+            with urllib.request.build_opener(_SafeRedirectHandler()).open(robots_request,timeout=10) as response:
+                robots.parse(response.read(256*1024).decode("utf-8",errors="replace").splitlines())
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as exc: raise RuntimeError(f"Impossible de vérifier les règles robots.txt de {service}") from exc
+        if not robots.can_fetch(EXTERNAL_USER_AGENT,url):
+            raise RuntimeError(f"{service} n'autorise pas l'import automatique de cette page. Saisissez l'offre manuellement")
+        request=urllib.request.Request(url,headers={"User-Agent":EXTERNAL_USER_AGENT,"Accept":"text/html,application/xhtml+xml"})
+        try:
+            with urllib.request.build_opener(_SafeRedirectHandler()).open(request,timeout=20) as response:
+                content=response.read(MAX_EXTERNAL_PAGE_BYTES+1)
+                final=response.geturl()
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+            raise RuntimeError(f"La page {service} est temporairement inaccessible") from exc
+        if len(content)>MAX_EXTERNAL_PAGE_BYTES: raise ValueError("La page d'offre externe est trop volumineuse")
+        if urlparse(final).hostname not in EXTERNAL_JOB_HOSTS: raise RuntimeError("La page a redirigé vers un domaine non autorisé")
+        parser=_JobPostingParser(); parser.feed(content.decode("utf-8",errors="replace"))
+        posting=self._find_posting(parser.documents)
+        if not posting: raise ValueError("Aucune offre structurée JobPosting n'a été trouvée sur cette page")
+        normalized=self.normalize(posting,url,service)
+        if not normalized["title"]: raise ValueError("La page externe ne fournit pas d'intitulé de poste")
+        return normalized
+
+    @classmethod
+    def _find_posting(cls, documents):
+        for document in documents:
+            candidates=document if isinstance(document,list) else document.get("@graph",[document]) if isinstance(document,dict) else []
+            for candidate in candidates:
+                types=candidate.get("@type",[]) if isinstance(candidate,dict) else []
+                if (types=="JobPosting" or "JobPosting" in types): return candidate
+        return None
+
+    @staticmethod
+    def normalize(item,url,service):
+        organization=item.get("hiringOrganization") or {}; location=item.get("jobLocation") or {}
+        if isinstance(location,list): location=location[0] if location else {}
+        address=location.get("address") or {} if isinstance(location,dict) else {}
+        city=address.get("addressLocality","") if isinstance(address,dict) else ""
+        description=re.sub(r"<[^>]+>"," ",str(item.get("description","")))
+        contract=item.get("employmentType",""); contract=", ".join(str(value) for value in contract) if isinstance(contract,list) else str(contract)
+        return {"source":service,"source_url":url,"reference":str(item.get("identifier",{}).get("value","") if isinstance(item.get("identifier"),dict) else item.get("identifier","")),"title":str(item.get("title","")).strip(),"company":str(organization.get("name","") if isinstance(organization,dict) else organization).strip() or "Entreprise non renseignée","city":str(city).strip(),"contract":contract.strip(),"description":re.sub(r"\s+"," ",description).strip(),"published_at":str(item.get("datePosted",""))[:10]}

@@ -134,6 +134,7 @@
 <div id="ft-results" class="offer-list">
 </div>
 </div>
+<div class="panel form external-import"><h2>Préremplir depuis un site d’emploi</h2><p>Indeed, HelloWork, Meteojob, Apec, Cadremploi, Monster, LinkedIn et Welcome to the Jungle : collez le lien public d’une offre précise. L’application vérifie d’abord <code>robots.txt</code>, lit uniquement les données structurées <code>JobPosting</code>, puis vous laisse contrôler chaque champ avant l’enregistrement.</p><label>Lien HTTPS de l’offre<input id="external-offer-url" type="url" placeholder="https://…"></label><button id="import-external-offer" class="chip" type="button">Lire cette offre</button><output id="external-import-output" aria-live="polite"></output></div>
 <div class="heading">
 <div>
 <p class="eyebrow">SUIVI LOCAL</p>
@@ -147,6 +148,8 @@
 <div class="offer-layout">
 <form id="offer-form" class="panel form">
 <input name="offer_id" type="hidden">
+<input name="source" type="hidden">
+<input name="reference" type="hidden">
 <div class="panel-title">
 <h2 id="offer-form-title">Ajouter une offre</h2>
 <button id="cancel-offer-edit" class="chip" type="button" hidden>Annuler</button>

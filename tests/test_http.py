@@ -147,6 +147,15 @@ class HttpSmokeTests(unittest.TestCase):
             status,error=self.post_error("/api/france-travail/search",{"keyword":"agent"})
         self.assertEqual(status,400); self.assertIn("France Travail",error["error"])
 
+    def test_external_job_page_can_prefill_then_store_its_source(self):
+        imported={"source":"HelloWork","source_url":"https://www.hellowork.com/fr-fr/emplois/123.html","reference":"123","title":"Agent","company":"Entreprise","city":"Roanne","contract":"CDD","description":"Accueil"}
+        with patch("app.ExternalJobPageConnector.import_url",return_value=imported) as connector:
+            status,preview=self.post("/api/external-offers/import",{"url":imported["source_url"]})
+        self.assertEqual(status,200); self.assertEqual(preview["source"],"HelloWork"); connector.assert_called_once_with(imported["source_url"])
+        status,created=self.post("/api/offers",preview); self.assertEqual(status,201)
+        _,body,_=self.get("/api/offers"); offer=json.loads(body)[0]
+        self.assertEqual(offer["sources"],"HelloWork"); self.assertEqual(offer["source_reference"],"123")
+
     def test_profile_update_recalculates_existing_offer_scores(self):
         _, created = self.post("/api/offers", {"title": "Agent accueil", "company": "Test"})
         status, result = self.post("/api/profile", {"title": "Agent accueil"})

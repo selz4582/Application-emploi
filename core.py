@@ -78,7 +78,7 @@ class Store:
 
     def dashboard(self):
         offers = self.rows("""SELECT o.*,c.name company,e.name establishment,s.total score,s.details_json,j.outbound_minutes,j.return_minutes,j.checked_at journey_checked_at,j.source journey_source,
-          group_concat(os.source, ', ') sources,max(os.url) source_url FROM offers o LEFT JOIN companies c ON c.id=o.company_id
+          group_concat(os.source, ', ') sources,max(os.url) source_url,max(os.reference) source_reference FROM offers o LEFT JOIN companies c ON c.id=o.company_id
           LEFT JOIN establishments e ON e.id=o.establishment_id LEFT JOIN scores s ON s.offer_id=o.id
           LEFT JOIN journeys j ON j.offer_id=o.id LEFT JOIN offer_sources os ON os.offer_id=o.id
           WHERE o.deleted_at IS NULL GROUP BY o.id ORDER BY COALESCE(o.applied_at,o.published_at) DESC""")
@@ -129,6 +129,7 @@ class Store:
             try: date.fromisoformat(published_at[:10])
             except ValueError as exc: raise ValueError("La date de publication est invalide") from exc
         source_url = str(data.get("source_url", "")).strip()
+        source_name = limited_text(data.get("source", "Saisie manuelle"),100,"source") or "Saisie manuelle"
         if source_url and not source_url.startswith(("http://", "https://")):
             raise ValueError("Le lien de l'offre doit commencer par http:// ou https://")
         outbound, returning = data.get("outbound_minutes"), data.get("return_minutes")
@@ -147,7 +148,7 @@ class Store:
                        (company_id,title,str(data.get("city", "")).strip(),str(data.get("contract", "")).strip(),str(data.get("work_time", "")).strip(),str(data.get("description", "")).strip(),str(data.get("sector", "")).strip(),published_at,offer_id))
             db.execute("DELETE FROM offer_sources WHERE offer_id=?", (offer_id,))
             if source_url:
-                db.execute("INSERT INTO offer_sources(offer_id,source,url,reference) VALUES(?,?,?,?)", (offer_id,"Saisie manuelle",source_url,str(data.get("reference", "")).strip()))
+                db.execute("INSERT INTO offer_sources(offer_id,source,url,reference) VALUES(?,?,?,?)", (offer_id,source_name,source_url,str(data.get("reference", "")).strip()))
             db.execute("DELETE FROM journeys WHERE offer_id=?", (offer_id,))
             journey = None
             if outbound not in (None, ""):

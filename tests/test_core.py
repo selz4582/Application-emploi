@@ -1,10 +1,10 @@
 import io, json, tempfile, unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from datetime import date
 from pathlib import Path
 from core import Store, build_email, duplicate_candidates, hidden_offer, score_offer, validate_public_contact
-from connectors import FranceTravailConnector, SireneConnector
+from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
 
 class DomainTests(unittest.TestCase):
     def setUp(self): self.tmp=tempfile.TemporaryDirectory(); self.store=Store(Path(self.tmp.name)/"test.db")
@@ -84,6 +84,28 @@ class DomainTests(unittest.TestCase):
         with patch("connectors.urllib.request.urlopen",side_effect=urllib.error.URLError("secret technical detail")):
             with self.assertRaisesRegex(RuntimeError,"temporairement inaccessible") as caught: FranceTravailConnector("client","secret").search_loire()
         self.assertNotIn("secret technical detail",str(caught.exception))
+    def test_external_job_page_import_reads_only_allowed_json_ld(self):
+        class Response(io.BytesIO):
+            def __init__(self,content,url): super().__init__(content); self.url=url
+            def __enter__(self): return self
+            def __exit__(self,*args): self.close()
+            def geturl(self): return self.url
+        robots=Response("User-agent: *\nAllow: /\n".encode(),"https://fr.indeed.com/robots.txt")
+        posting={"@context":"https://schema.org","@type":"JobPosting","title":"Agent d'accueil","hiringOrganization":{"name":"Entreprise Test"},"jobLocation":{"address":{"addressLocality":"Saint-Étienne"}},"employmentType":"CDD","datePosted":"2026-09-20","description":"<p>Accueil du public</p>"}
+        html=f'<html><script type="application/ld+json">{json.dumps(posting)}</script></html>'.encode()
+        page=Response(html,"https://fr.indeed.com/viewjob?jk=123")
+        opener=Mock(); opener.open.side_effect=[robots,page]
+        with patch("connectors.urllib.request.build_opener",return_value=opener): imported=ExternalJobPageConnector().import_url("https://fr.indeed.com/viewjob?jk=123")
+        self.assertEqual(imported["source"],"Indeed"); self.assertEqual(imported["title"],"Agent d'accueil"); self.assertEqual(imported["city"],"Saint-Étienne"); self.assertNotIn("<p>",imported["description"])
+    def test_external_job_page_import_rejects_unknown_hosts_and_robots_denial(self):
+        with self.assertRaisesRegex(ValueError,"site d'emploi pris en charge"): ExternalJobPageConnector().import_url("https://example.org/job")
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self,*args): self.close()
+            def geturl(self): return "https://www.hellowork.com/robots.txt"
+        opener=Mock(); opener.open.return_value=Response(b"User-agent: *\nDisallow: /\n")
+        with patch("connectors.urllib.request.build_opener",return_value=opener):
+            with self.assertRaisesRegex(RuntimeError,"n'autorise pas"): ExternalJobPageConnector().import_url("https://www.hellowork.com/fr-fr/emplois/123.html")
     def test_maintenance_marks_no_reply_without_obsolete_reminder(self):
         self.store.execute("INSERT INTO applications(position,status,sent_at,followup_at,next_action,created_at) VALUES(?,?,?,?,?,?)",("Agent","Candidature envoyée","2026-01-01","2026-01-15","Relancer","2026-01-01"))
         self.assertEqual(self.store.maintain(date(2026,3,5)),0)
