@@ -156,6 +156,12 @@ class HttpSmokeTests(unittest.TestCase):
         _,body,_=self.get("/api/offers"); offer=json.loads(body)[0]
         self.assertEqual(offer["sources"],"HelloWork"); self.assertEqual(offer["source_reference"],"123")
 
+    def test_external_multi_site_search_route_returns_results_and_warnings(self):
+        result={"offers":[{"title":"Agent","source":"Indeed","source_url":"https://fr.indeed.com/viewjob?jk=1"}],"warnings":["Monster refuse la recherche"],"links_found":1}
+        with patch("app.ExternalJobPageConnector.search",return_value=result) as search:
+            status,payload=self.post("/api/external-offers/search",{"keyword":"agent","city":"Roanne","providers":["indeed","monster"],"limit":5})
+        self.assertEqual(status,200); self.assertEqual(payload,result); search.assert_called_once_with("agent","Roanne",["indeed","monster"],5)
+
     def test_profile_update_recalculates_existing_offer_scores(self):
         _, created = self.post("/api/offers", {"title": "Agent accueil", "company": "Test"})
         status, result = self.post("/api/profile", {"title": "Agent accueil"})

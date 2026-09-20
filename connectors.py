@@ -99,6 +99,12 @@ EXTERNAL_JOB_HOSTS = {
 }
 EXTERNAL_USER_AGENT = "CarnetEmploi42/1.0 (+import manuel d'une offre)"
 MAX_EXTERNAL_PAGE_BYTES = 2 * 1024 * 1024
+SEARCH_PROVIDERS = {
+    "indeed": {"name":"Indeed","host":"fr.indeed.com","url":"https://fr.indeed.com/jobs?q={keyword}&l={city}","paths":("/viewjob", "/rc/clk")},
+    "hellowork": {"name":"HelloWork","host":"www.hellowork.com","url":"https://www.hellowork.com/fr-fr/emploi/recherche.html?k={keyword}&l={city}","paths":("/fr-fr/emplois/",)},
+    "meteojob": {"name":"Meteojob","host":"www.meteojob.com","url":"https://www.meteojob.com/jobs?what={keyword}&where={city}","paths":("/jobs/",)},
+    "monster": {"name":"Monster","host":"www.monster.fr","url":"https://www.monster.fr/emploi/recherche?q={keyword}&where={city}","paths":("/emploi/offre", "/offre-demploi/")},
+}
 
 
 class _JobPostingParser(HTMLParser):
@@ -116,6 +122,14 @@ class _JobPostingParser(HTMLParser):
             except json.JSONDecodeError: pass
 
 
+class _OfferLinkParser(HTMLParser):
+    def __init__(self): super().__init__(); self.links=[]
+    def handle_starttag(self,tag,attrs):
+        if tag.lower()=="a":
+            href=dict(attrs).get("href","").strip()
+            if href: self.links.append(href)
+
+
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, file_pointer, code, message, headers, new_url):
         target=urljoin(request.full_url,new_url)
@@ -131,30 +145,62 @@ class ExternalJobPageConnector:
         if parsed.scheme!="https" or parsed.hostname not in EXTERNAL_JOB_HOSTS or parsed.port not in {None,443} or parsed.username or parsed.password:
             raise ValueError("Utilisez le lien HTTPS d'un site d'emploi pris en charge")
         service=EXTERNAL_JOB_HOSTS[parsed.hostname]
-        robots_url=f"https://{parsed.hostname}/robots.txt"
-        robots=urllib.robotparser.RobotFileParser(); robots.set_url(robots_url)
-        try:
-            robots_request=urllib.request.Request(robots_url,headers={"User-Agent":EXTERNAL_USER_AGENT})
-            with urllib.request.build_opener(_SafeRedirectHandler()).open(robots_request,timeout=10) as response:
-                robots.parse(response.read(256*1024).decode("utf-8",errors="replace").splitlines())
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as exc: raise RuntimeError(f"Impossible de vérifier les règles robots.txt de {service}") from exc
-        if not robots.can_fetch(EXTERNAL_USER_AGENT,url):
+        if not self._robots_allowed(parsed.hostname,url,service):
             raise RuntimeError(f"{service} n'autorise pas l'import automatique de cette page. Saisissez l'offre manuellement")
-        request=urllib.request.Request(url,headers={"User-Agent":EXTERNAL_USER_AGENT,"Accept":"text/html,application/xhtml+xml"})
-        try:
-            with urllib.request.build_opener(_SafeRedirectHandler()).open(request,timeout=20) as response:
-                content=response.read(MAX_EXTERNAL_PAGE_BYTES+1)
-                final=response.geturl()
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
-            raise RuntimeError(f"La page {service} est temporairement inaccessible") from exc
-        if len(content)>MAX_EXTERNAL_PAGE_BYTES: raise ValueError("La page d'offre externe est trop volumineuse")
-        if urlparse(final).hostname not in EXTERNAL_JOB_HOSTS: raise RuntimeError("La page a redirigé vers un domaine non autorisé")
+        content=self._read_page(url,service)
         parser=_JobPostingParser(); parser.feed(content.decode("utf-8",errors="replace"))
         posting=self._find_posting(parser.documents)
         if not posting: raise ValueError("Aucune offre structurée JobPosting n'a été trouvée sur cette page")
         normalized=self.normalize(posting,url,service)
         if not normalized["title"]: raise ValueError("La page externe ne fournit pas d'intitulé de poste")
         return normalized
+
+    def search(self, keyword: str, city: str, providers: list[str], limit=10) -> dict:
+        keyword=str(keyword).strip(); city=str(city).strip()
+        if not keyword: raise ValueError("Indiquez un métier ou des mots-clés")
+        if not isinstance(providers,list) or not providers: raise ValueError("Sélectionnez au moins un site d'emploi")
+        unknown=set(providers)-set(SEARCH_PROVIDERS)
+        if unknown: raise ValueError("Site de recherche non autorisé")
+        limit=max(1,min(int(limit),10)); links=[]; warnings=[]
+        for provider in dict.fromkeys(providers):
+            spec=SEARCH_PROVIDERS[provider]; search_url=spec["url"].format(keyword=urllib.parse.quote_plus(keyword),city=urllib.parse.quote_plus(city))
+            try:
+                if not self._robots_allowed(spec["host"],search_url,spec["name"]):
+                    warnings.append(f"{spec['name']} refuse la recherche automatisée dans robots.txt"); continue
+                parser=_OfferLinkParser(); parser.feed(self._read_page(search_url,spec["name"]).decode("utf-8",errors="replace"))
+                for href in parser.links:
+                    candidate=urljoin(search_url,href); parsed=urlparse(candidate)
+                    if parsed.hostname==spec["host"] and any(parsed.path.startswith(path) for path in spec["paths"]):
+                        clean=parsed._replace(fragment="").geturl()
+                        if clean not in links: links.append(clean)
+            except (RuntimeError,ValueError) as exc: warnings.append(f"{spec['name']} : {exc}")
+        offers=[]
+        for link in links:
+            if len(offers)>=limit: break
+            try: offers.append(self.import_url(link))
+            except (RuntimeError,ValueError) as exc: warnings.append(f"{EXTERNAL_JOB_HOSTS.get(urlparse(link).hostname,'Site')} : {exc}")
+        return {"offers":offers,"warnings":warnings,"links_found":len(links)}
+
+    @staticmethod
+    def _robots_allowed(host,url,service):
+        robots_url=f"https://{host}/robots.txt"; robots=urllib.robotparser.RobotFileParser(); robots.set_url(robots_url)
+        try:
+            request=urllib.request.Request(robots_url,headers={"User-Agent":EXTERNAL_USER_AGENT})
+            with urllib.request.build_opener(_SafeRedirectHandler()).open(request,timeout=10) as response:
+                robots.parse(response.read(256*1024).decode("utf-8",errors="replace").splitlines())
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as exc: raise RuntimeError(f"Impossible de vérifier les règles robots.txt de {service}") from exc
+        return robots.can_fetch(EXTERNAL_USER_AGENT,url)
+
+    @staticmethod
+    def _read_page(url,service):
+        request=urllib.request.Request(url,headers={"User-Agent":EXTERNAL_USER_AGENT,"Accept":"text/html,application/xhtml+xml"})
+        try:
+            with urllib.request.build_opener(_SafeRedirectHandler()).open(request,timeout=20) as response:
+                content=response.read(MAX_EXTERNAL_PAGE_BYTES+1); final=response.geturl()
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc: raise RuntimeError(f"La page {service} est temporairement inaccessible") from exc
+        if len(content)>MAX_EXTERNAL_PAGE_BYTES: raise ValueError("La page externe est trop volumineuse")
+        if urlparse(final).hostname not in EXTERNAL_JOB_HOSTS: raise RuntimeError("La page a redirigé vers un domaine non autorisé")
+        return content
 
     @classmethod
     def _find_posting(cls, documents):

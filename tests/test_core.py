@@ -106,6 +106,21 @@ class DomainTests(unittest.TestCase):
         opener=Mock(); opener.open.return_value=Response(b"User-agent: *\nDisallow: /\n")
         with patch("connectors.urllib.request.build_opener",return_value=opener):
             with self.assertRaisesRegex(RuntimeError,"n'autorise pas"): ExternalJobPageConnector().import_url("https://www.hellowork.com/fr-fr/emplois/123.html")
+    def test_external_multi_site_search_discovers_links_and_limits_results(self):
+        connector=ExternalJobPageConnector()
+        pages={
+            "Indeed":b'<a href="/viewjob?jk=1">Un</a><a href="https://evil.example/job">Non</a>',
+            "HelloWork":b'<a href="/fr-fr/emplois/2.html">Deux</a>',
+        }
+        def read_page(url,service): return pages[service]
+        def import_url(url): return {"title":"Offre", "source":"Indeed" if "indeed" in url else "HelloWork", "source_url":url}
+        with patch.object(connector,"_robots_allowed",return_value=True),patch.object(connector,"_read_page",side_effect=read_page),patch.object(connector,"import_url",side_effect=import_url):
+            result=connector.search("agent accueil","Saint-Étienne",["indeed","hellowork"],2)
+        self.assertEqual(result["links_found"],2); self.assertEqual(len(result["offers"]),2); self.assertEqual(result["warnings"],[])
+    def test_external_multi_site_search_reports_robots_refusal(self):
+        connector=ExternalJobPageConnector()
+        with patch.object(connector,"_robots_allowed",return_value=False): result=connector.search("agent","Roanne",["monster"],10)
+        self.assertEqual(result["offers"],[]); self.assertIn("robots.txt",result["warnings"][0])
     def test_maintenance_marks_no_reply_without_obsolete_reminder(self):
         self.store.execute("INSERT INTO applications(position,status,sent_at,followup_at,next_action,created_at) VALUES(?,?,?,?,?,?)",("Agent","Candidature envoyée","2026-01-01","2026-01-15","Relancer","2026-01-01"))
         self.assertEqual(self.store.maintain(date(2026,3,5)),0)

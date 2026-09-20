@@ -179,12 +179,18 @@ candidature fonctionnent ensuite normalement.
 
 ## Import ponctuel depuis les sites d’emploi
 
-Dans **Mes offres**, coller l’URL HTTPS d’une offre précise Indeed, HelloWork, Meteojob,
-Apec, Cadremploi, Monster, LinkedIn ou Welcome to the Jungle pour tenter un préremplissage.
-L’import est volontairement limité aux domaines reconnus, vérifie `robots.txt`, refuse les
-redirections vers un autre domaine, limite la réponse à 2 Mo et lit uniquement le bloc public
-standard `JobPosting` en JSON-LD. Il ne parcourt jamais les listes de résultats et ne contourne
-ni connexion, ni CAPTCHA, ni blocage. Si le site refuse l’accès, n’expose pas de données
-structurées ou change son format, l’application demande de revenir à la saisie manuelle.
-Le préremplissage n’enregistre rien : l’utilisateur doit relire les champs puis confirmer avec
-**Enregistrer et évaluer**. La source et la référence sont conservées après modification.
+Dans **Mes offres**, une recherche ponctuelle peut interroger Indeed, HelloWork, Meteojob
+et Monster à partir d’un métier et d’une ville. Elle découvre au maximum dix liens dans les
+pages de résultats puis lit chaque offre individuellement. Une URL précise Indeed, HelloWork,
+Meteojob, Apec, Cadremploi, Monster, LinkedIn ou Welcome to the Jungle peut également être
+collée directement.
+
+Chaque accès est limité aux domaines reconnus, vérifie `robots.txt`, refuse les redirections
+vers un autre domaine, limite la réponse à 2 Mo et lit uniquement le bloc public standard
+`JobPosting` en JSON-LD. Le système ne contourne ni connexion, ni CAPTCHA, ni blocage. Si un
+site refuse la recherche ou l’import, n’expose pas de données structurées ou change son format,
+un avertissement est affiché et la saisie manuelle reste disponible.
+
+La recherche et le préremplissage n’enregistrent rien : l’utilisateur doit sélectionner une
+offre, relire les champs puis confirmer avec **Enregistrer et évaluer**. La source et la
+référence sont conservées après modification.

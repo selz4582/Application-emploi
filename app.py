@@ -180,6 +180,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(connector.search_loire(d.get("keyword",""),d.get("city",""),d.get("limit",20)))
             if p=="/api/external-offers/import":
                 return self.send_json(ExternalJobPageConnector().import_url(d.get("url","")))
+            if p=="/api/external-offers/search":
+                return self.send_json(ExternalJobPageConnector().search(d.get("keyword",""),d.get("city",""),d.get("providers",[]),d.get("limit",10)))
             if p=="/api/contacts":
                 return self.send_json({"id":store.add_public_contact(d)},201)
             if p.startswith("/api/contacts/") and p.endswith("/update"):
