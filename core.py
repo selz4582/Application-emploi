@@ -311,29 +311,37 @@ class Store:
         """Met à jour le brouillon local sans effectuer aucun envoi."""
         allowed = {"letter", "email_to", "email_subject", "email_body", "resume_id", "checklist"}
         if set(values) - allowed: raise ValueError("Champ de brouillon non autorisé")
-        application = self.rows("SELECT id,sent_at FROM applications WHERE id=?", (application_id,))
+        application = self.rows("SELECT * FROM applications WHERE id=?", (application_id,))
         if not application:
             raise ValueError("Candidature introuvable")
         if application[0]["sent_at"]: raise ValueError("Une candidature envoyée ne peut plus modifier son brouillon")
-        email = str(values.get("email_to", "")).strip()
+        current=application[0]
+        email = str(values.get("email_to",current["email_to"] or "")).strip()
         if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
             raise ValueError("Adresse électronique invalide")
-        checklist = values.get("checklist", {})
+        if "checklist" in values:
+            checklist=values["checklist"]
+        else:
+            try: checklist=json.loads(current["checklist_json"] or "{}")
+            except (TypeError,json.JSONDecodeError): checklist={}
+        if not isinstance(checklist,dict): raise ValueError("Liste de contrôle invalide")
         checklist_keys = {"destinataire_verifie", "champs_sensibles_vides", "validation_humaine"}
         if set(checklist) - checklist_keys: raise ValueError("Étape de contrôle inconnue")
         normalized = {key: bool(checklist.get(key, False)) for key in checklist_keys}
-        resume_id = values.get("resume_id") or None
+        resume_id = (values.get("resume_id") or None) if "resume_id" in values else current["resume_id"]
         if resume_id is not None and not self.rows("SELECT id FROM resumes WHERE id=?", (resume_id,)):
             raise ValueError("CV introuvable")
         with self.connect() as db:
             db.execute("""UPDATE applications SET letter=?,email_to=?,email_subject=?,email_body=?,resume_id=?,checklist_json=? WHERE id=?""",
-                (str(values.get("letter", "")),email,str(values.get("email_subject", "")),str(values.get("email_body", "")),
+                (str(values.get("letter",current["letter"] or "")),email,str(values.get("email_subject",current["email_subject"] or "")),str(values.get("email_body",current["email_body"] or "")),
                  resume_id,json.dumps(normalized,ensure_ascii=False),application_id))
 
     def mark_application_sent(self, application_id: int) -> None:
         detail = self.application_detail(application_id)
         if detail["sent_at"]: raise ValueError("Cette candidature est déjà marquée comme envoyée")
         if not detail["email_to"]: raise ValueError("Le destinataire doit être renseigné")
+        if not str(detail["email_subject"] or "").strip(): raise ValueError("L’objet du courriel doit être renseigné")
+        if not str(detail["email_body"] or "").strip(): raise ValueError("Le corps du courriel doit être renseigné")
         required = ("destinataire_verifie", "champs_sensibles_vides", "validation_humaine")
         if not all(detail["checklist"].get(key) for key in required):
             raise ValueError("Toutes les vérifications humaines doivent être cochées")
@@ -368,8 +376,11 @@ class Store:
         if not rows: raise ValueError("Candidature introuvable")
         sent_at = rows[0]["sent_at"]
         post_send = {"Candidature envoyée","Entretien ou test","Acceptée","Refusée","Sans réponse"}
+        pre_send = {"À étudier","À candidater","Candidature préparée"}
         if values.get("status") in post_send and not sent_at:
             raise ValueError("Confirmez d'abord l'envoi depuis le dossier de candidature")
+        if values.get("status") in pre_send and sent_at:
+            raise ValueError("Une candidature envoyée ne peut pas redevenir un brouillon")
         response_statuses = {"Entretien ou test","Acceptée","Refusée"}
         if values.get("status") in response_statuses and not rows[0]["response_at"] and not values.get("response_at"):
             values["response_at"] = date.today().isoformat()

@@ -260,6 +260,30 @@ class DomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"ne peut plus modifier"): self.store.update_application_draft(application,{"email_to":"autre@test.fr","checklist":{}})
         with self.assertRaisesRegex(ValueError,"déjà marquée"): self.store.mark_application_sent(application)
 
+    def test_sent_application_requires_message_and_cannot_return_to_draft(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})["id"]
+        application=self.store.apply_to_offer(offer)
+        checklist={"destinataire_verifie":True,"champs_sensibles_vides":True,"validation_humaine":True}
+        self.store.update_application_draft(application,{"email_to":"rh@test.fr","email_subject":"","email_body":"Bonjour","checklist":checklist})
+        with self.assertRaisesRegex(ValueError,"objet"): self.store.mark_application_sent(application)
+        self.store.update_application_draft(application,{"email_to":"rh@test.fr","email_subject":"Candidature","email_body":"","checklist":checklist})
+        with self.assertRaisesRegex(ValueError,"corps"): self.store.mark_application_sent(application)
+        self.store.update_application_draft(application,{"email_to":"rh@test.fr","email_subject":"Candidature","email_body":"Bonjour","checklist":checklist})
+        self.store.mark_application_sent(application)
+        with self.assertRaisesRegex(ValueError,"redevenir un brouillon"):
+            self.store.update_application(application,{"status":"Candidature préparée"})
+        self.assertEqual(self.store.application_detail(application)["status"],"Candidature envoyée")
+
+    def test_partial_draft_update_preserves_existing_content(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})["id"]
+        application=self.store.apply_to_offer(offer)
+        before=self.store.application_detail(application)
+        self.store.update_application_draft(application,{"email_to":"rh@test.fr"})
+        after=self.store.application_detail(application)
+        self.assertEqual(after["email_subject"],before["email_subject"])
+        self.assertEqual(after["email_body"],before["email_body"])
+        self.assertEqual(after["checklist"],before["checklist"])
+
     def test_only_an_unsent_draft_can_be_deleted(self):
         offer=self.store.create_offer({"title":"Agent","company":"Test"})
         draft=self.store.apply_to_offer(offer["id"])
