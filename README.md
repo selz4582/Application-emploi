@@ -62,6 +62,8 @@ La date de relance choisie est prioritaire sur la date de réponse attendue. Auc
 nouvelle relance n'est créée pour une candidature acceptée, refusée, abandonnée, déjà
 classée sans réponse. Une candidature passée en entretien produit une relance uniquement
 si une date de suivi a été renseignée.
+Après 60 jours sans réponse, la maintenance classe automatiquement le dossier et son offre
+d’origine dans « Sans réponse », sans laisser un ancien état contradictoire dans Mes offres.
 Les statistiques de réponse, d'entretien et de résultat portent uniquement sur les
 candidatures réellement marquées comme envoyées. Les brouillons sont affichés séparément
 et ne réduisent donc plus artificiellement les taux de réponse.

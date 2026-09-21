@@ -128,6 +128,16 @@ class DomainTests(unittest.TestCase):
         closed=self.store.rows("SELECT followup_at,next_action FROM applications")[0]; self.assertIsNone(closed["followup_at"]); self.assertEqual(closed["next_action"],"")
         self.assertEqual(self.store.rows("SELECT * FROM notifications"),[])
         self.assertEqual(self.store.maintain(date(2026,3,5)),0)
+
+    def test_maintenance_synchronizes_no_reply_on_linked_offer(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})["id"]
+        application=self.store.apply_to_offer(offer)
+        self.store.execute("""UPDATE applications SET status='Candidature envoyée',sent_at=?,followup_at=?,next_action=?
+                            WHERE id=?""",("2026-01-01","2026-01-15","Relancer",application))
+        self.store.execute("UPDATE offers SET status='Candidature envoyée',applied_at=? WHERE id=?",("2026-01-01",offer))
+        self.store.maintain(date(2026,3,5))
+        self.assertEqual(self.store.rows("SELECT status FROM applications WHERE id=?",(application,))[0]["status"],"Sans réponse")
+        self.assertEqual(self.store.rows("SELECT status FROM offers WHERE id=?",(offer,))[0]["status"],"Sans réponse")
     def test_tracking_update_validates_status(self):
         app=self.store.execute("INSERT INTO applications(position,created_at) VALUES(?,?)",("Agent","2026-09-01"))
         self.store.update_application(app,{"status":"À candidater","next_action":"Relancer"})

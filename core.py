@@ -418,6 +418,8 @@ class Store:
                 if app["status"] in closed: continue
                 if app["status"] != "Entretien ou test" and (today - sent).days >= 60:
                     db.execute("UPDATE applications SET status='Sans réponse',followup_at=NULL,next_action='' WHERE id=?", (app["id"],))
+                    if app["offer_id"]:
+                        db.execute("UPDATE offers SET status='Sans réponse' WHERE id=?",(app["offer_id"],))
                     continue
                 due_value = app["followup_at"] or app["expected_reply"]
                 if app["status"] == "Entretien ou test" and not due_value: continue
