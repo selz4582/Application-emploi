@@ -44,6 +44,9 @@ calcul d'itinéraire n'est configuré ; une information inconnue n'est jamais p�
 Chaque candidature possède un dossier local permettant de relire le message, la lettre,
 le destinataire et le CV. L'application n'envoie aucun courriel : le statut « envoyée »
 ne peut être confirmé qu'après validation explicite des trois contrôles humains.
+Pour une candidature issue d’une offre, l’état de l’offre suit automatiquement celui du
+dossier : brouillon préparé, envoi confirmé, entretien ou résultat. Supprimer un brouillon
+non envoyé replace l’offre dans « À étudier » afin qu’une nouvelle préparation reste possible.
 Pour une candidature spontanée, le CV peut être choisi avant la création des brouillons.
 Si une candidature similaire existe déjà, aucun nouveau brouillon n'est créé avant une
 confirmation explicite de l'utilisateur.

@@ -188,9 +188,12 @@ class Store:
         candidate = ((profile[0].get("first_name", "")+" "+profile[0].get("last_name", "")).strip() if profile else "Candidat")
         draft = build_email(offer[0]["title"],candidate,offer[0]["company"],"")
         resume = self.rows("SELECT id FROM resumes ORDER BY preferred DESC,id LIMIT 1")
-        return self.execute("""INSERT INTO applications(offer_id,position,resume_id,email_subject,email_body,checklist_json,created_at)
-            VALUES(?,?,?,?,?,?,?)""", (offer_id,offer[0]["title"],resume[0]["id"] if resume else None,draft["subject"],draft["body"],
-            '{"destinataire_verifie": false, "champs_sensibles_vides": true, "validation_humaine": false}',now()))
+        with self.connect() as db:
+            application_id=db.execute("""INSERT INTO applications(offer_id,position,resume_id,email_subject,email_body,checklist_json,created_at)
+                VALUES(?,?,?,?,?,?,?)""", (offer_id,offer[0]["title"],resume[0]["id"] if resume else None,draft["subject"],draft["body"],
+                '{"destinataire_verifie": false, "champs_sensibles_vides": true, "validation_humaine": false}',now())).lastrowid
+            db.execute("UPDATE offers SET status='Candidature préparée' WHERE id=?",(offer_id,))
+        return application_id
 
     def contacts(self, establishment_id: int | None = None, include_inactive: bool = False) -> list[dict]:
         sql = """SELECT ct.*,e.name establishment,e.city FROM contacts ct
@@ -335,12 +338,15 @@ class Store:
         if not all(detail["checklist"].get(key) for key in required):
             raise ValueError("Toutes les vérifications humaines doivent être cochées")
         sent_at = now()
-        self.execute("UPDATE applications SET status='Candidature envoyée',sent_at=?,followup_at=? WHERE id=?",
-            (sent_at,(date.today()+timedelta(days=10)).isoformat(),application_id))
+        with self.connect() as db:
+            db.execute("UPDATE applications SET status='Candidature envoyée',sent_at=?,followup_at=? WHERE id=?",
+                (sent_at,(date.today()+timedelta(days=10)).isoformat(),application_id))
+            db.execute("""UPDATE offers SET status='Candidature envoyée',applied_at=?
+                          WHERE id=(SELECT offer_id FROM applications WHERE id=?)""",(sent_at,application_id))
 
     def delete_application_draft(self, application_id: int) -> None:
         """Supprime un brouillon accidentel, mais jamais une candidature déjà envoyée."""
-        rows = self.rows("SELECT status,sent_at FROM applications WHERE id=?", (application_id,))
+        rows = self.rows("SELECT status,sent_at,offer_id FROM applications WHERE id=?", (application_id,))
         if not rows: raise ValueError("Candidature introuvable")
         application = rows[0]
         if application["sent_at"] or application["status"] != "Candidature préparée":
@@ -348,6 +354,8 @@ class Store:
         with self.connect() as db:
             db.execute("DELETE FROM notifications WHERE application_id=?", (application_id,))
             db.execute("DELETE FROM applications WHERE id=?", (application_id,))
+            if application["offer_id"]:
+                db.execute("UPDATE offers SET status='À étudier',applied_at=NULL WHERE id=?",(application["offer_id"],))
 
     def update_application(self, application_id: int, values: dict):
         values = dict(values)
@@ -376,6 +384,10 @@ class Store:
         with self.connect() as db:
             cursor = db.execute(f"UPDATE applications SET {assignments} WHERE id=?", args)
             if not cursor.rowcount: raise ValueError("Candidature introuvable")
+            if "status" in values:
+                db.execute("""UPDATE offers SET status=?
+                              WHERE id=(SELECT offer_id FROM applications WHERE id=?)""",
+                           (values["status"],application_id))
 
     def statistics(self, period="month", today: date | None = None):
         today = today or date.today(); days = 7 if period == "week" else 31

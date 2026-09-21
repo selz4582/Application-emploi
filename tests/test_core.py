@@ -260,4 +260,18 @@ class DomainTests(unittest.TestCase):
         self.store.execute("UPDATE applications SET status='Candidature envoyée',sent_at=? WHERE id=?",("2026-09-18",replacement))
         with self.assertRaisesRegex(ValueError,"non envoyé"): self.store.delete_application_draft(replacement)
 
+    def test_offer_status_follows_application_lifecycle(self):
+        offer=self.store.create_offer({"title":"Agent","company":"Test"})["id"]
+        draft=self.store.apply_to_offer(offer)
+        self.assertEqual(self.store.rows("SELECT status FROM offers WHERE id=?",(offer,))[0]["status"],"Candidature préparée")
+        self.store.delete_application_draft(draft)
+        self.assertEqual(self.store.rows("SELECT status FROM offers WHERE id=?",(offer,))[0]["status"],"À étudier")
+        draft=self.store.apply_to_offer(offer)
+        self.store.update_application_draft(draft,{"email_to":"rh@test.fr","checklist":{"destinataire_verifie":True,"champs_sensibles_vides":True,"validation_humaine":True}})
+        self.store.mark_application_sent(draft)
+        sent=self.store.rows("SELECT status,applied_at FROM offers WHERE id=?",(offer,))[0]
+        self.assertEqual(sent["status"],"Candidature envoyée"); self.assertTrue(sent["applied_at"])
+        self.store.update_application(draft,{"status":"Entretien ou test"})
+        self.assertEqual(self.store.rows("SELECT status FROM offers WHERE id=?",(offer,))[0]["status"],"Entretien ou test")
+
 if __name__=="__main__": unittest.main()
