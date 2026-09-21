@@ -43,3 +43,16 @@ class GoogleAuthTests(unittest.TestCase):
         second_url=self.auth.authorization_url(); second_state=parse_qs(urlparse(second_url).query)["state"][0]
         with patch.object(self.auth,"_post_json",return_value={"id_token":"two"}),patch.object(self.auth,"_get_json",return_value={"aud":"client.apps.googleusercontent.com","iss":"accounts.google.com","email_verified":True,"email":"other@example.fr"}):
             with self.assertRaisesRegex(ValueError,"n'est pas autorisé"): self.auth.complete("code",second_state)
+
+    def test_session_is_revoked_when_allowed_account_changes(self):
+        identity={"email":"anne@example.fr","name":"Anne"}
+        cookie=self.auth.session_cookie(identity).split(";",1)[0]
+        self.assertEqual(self.auth.identity_from_headers({"Cookie":cookie})["email"],"anne@example.fr")
+        self.settings.update({"google_allowed_email":"other@example.fr"})
+        self.assertIsNone(self.auth.identity_from_headers({"Cookie":cookie}))
+
+    def test_malformed_cookie_is_rejected_and_pending_states_are_bounded(self):
+        self.assertIsNone(self.auth.identity_from_headers({"Cookie":"carnet_emploi_session=\"unterminated"}))
+        for _ in range(30):
+            self.auth.authorization_url()
+        self.assertLessEqual(len(self.auth.pending),20)

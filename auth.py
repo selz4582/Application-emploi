@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -19,6 +19,7 @@ TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 SESSION_COOKIE = "carnet_emploi_session"
 STATE_TTL_SECONDS = 600
 SESSION_TTL_SECONDS = 30 * 24 * 3600
+MAX_PENDING_STATES = 20
 
 
 class GoogleAuth:
@@ -67,7 +68,12 @@ class GoogleAuth:
 
     def identity_from_headers(self, headers):
         if not self.enabled: return {"email":"local","name":"Utilisateur local","picture":""}
-        cookie=SimpleCookie(); cookie.load(headers.get("Cookie", "")); morsel=cookie.get(SESSION_COOKIE)
+        cookie=SimpleCookie()
+        try:
+            cookie.load(headers.get("Cookie", ""))
+        except CookieError:
+            return None
+        morsel=cookie.get(SESSION_COOKIE)
         if not morsel or "." not in morsel.value: return None
         encoded,signature=morsel.value.rsplit(".",1)
         expected=hmac.new(self._secret(),encoded.encode(),hashlib.sha256).hexdigest()
@@ -75,7 +81,13 @@ class GoogleAuth:
         try:
             padded=encoded+"="*(-len(encoded)%4); payload=json.loads(base64.urlsafe_b64decode(padded))
         except (ValueError,json.JSONDecodeError): return None
-        if payload.get("exp",0)<time.time() or not payload.get("email"): return None
+        email=str(payload.get("email", "")).strip().lower()
+        allowed=self.settings.value("google_allowed_email").strip().lower()
+        if payload.get("exp",0)<time.time() or not email: return None
+        # Une session créée avant un changement de compte autorisé doit être
+        # révoquée immédiatement, même si sa signature et sa date sont valides.
+        if allowed and email != allowed: return None
+        payload["email"]=email
         return payload
 
     def _secret(self):
@@ -84,7 +96,10 @@ class GoogleAuth:
             path.write_bytes(secrets.token_bytes(32)); path.chmod(0o600)
         return path.read_bytes()
 
-    def _prune_states(self): self.pending={key:value for key,value in self.pending.items() if value["expires"]>=time.time()}
+    def _prune_states(self):
+        valid=((key,value) for key,value in self.pending.items() if value["expires"]>=time.time())
+        newest=sorted(valid,key=lambda item:item[1]["expires"],reverse=True)[:MAX_PENDING_STATES]
+        self.pending=dict(newest)
 
     @staticmethod
     def _post_json(url,values):

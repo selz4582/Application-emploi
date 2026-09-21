@@ -221,6 +221,9 @@ seul compte autorisé, sauf si une adresse a déjà été renseignée dans **Com
 Un autre compte Google est alors refusé. Une fois SSO actif, la configuration et toutes les API
 métier exigent elles aussi une session valide ; l’API publique de statut ne révèle plus les
 autres connecteurs ni les chemins locaux.
+Si le compte autorisé est modifié, les sessions créées avec l’ancienne adresse sont révoquées
+immédiatement et une nouvelle connexion Google est exigée. Les cookies illisibles sont refusés
+sans interrompre le serveur et le nombre de tentatives de connexion en attente est limité.
 
 Si le client OAuth est erroné ou si le compte n’est plus accessible, fermer l’application puis
 lancer `desactiver-google-sso.bat`. Le script supprime uniquement les trois paramètres Google ;
