@@ -63,6 +63,7 @@ class HttpSmokeTests(unittest.TestCase):
             status=response.status; body=response.read(); content_type=response.headers.get_content_type(); headers=response.headers
         self.assertEqual(status, 200); self.assertEqual(content_type, "text/html")
         self.assertEqual(headers["X-Frame-Options"],"DENY"); self.assertEqual(headers["X-Content-Type-Options"],"nosniff"); self.assertIn("default-src 'self'",headers["Content-Security-Policy"])
+        self.assertNotIn("Python",headers["Server"])
         self.assertIn(b"Carnet Emploi", body)
         self.assertIn(b'class="skip-link"',body); self.assertIn(b'aria-label="Navigation principale"',body)
         self.assertIn(b'/common.js',body); self.assertNotIn(b'data-page="mockups"',body)
@@ -88,6 +89,21 @@ class HttpSmokeTests(unittest.TestCase):
         self.assertEqual(status,500)
         self.assertIn("Erreur interne locale",error["error"])
         self.assertNotIn("secret-technique",json.dumps(error))
+
+    def test_unexpected_get_error_returns_json_and_server_remains_available(self):
+        with patch.object(app.store,"dashboard",side_effect=RuntimeError("chemin-et-secret")):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get("/api/offers")
+            error=caught.exception
+            try:
+                self.assertEqual(error.code,500)
+                payload=json.loads(error.read())
+            finally:
+                error.close()
+        self.assertIn("Erreur interne locale",payload["error"])
+        self.assertNotIn("chemin-et-secret",json.dumps(payload))
+        status,body,_=self.get("/api/health")
+        self.assertEqual(status,200); self.assertEqual(json.loads(body)["status"],"ok")
 
     def test_statistics_route_returns_successful_json(self):
         status, body, _ = self.get("/api/statistics?period=month")

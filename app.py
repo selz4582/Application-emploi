@@ -26,6 +26,9 @@ def auth_manager(port):
     return AUTH_MANAGERS[key]
 
 class Handler(SimpleHTTPRequestHandler):
+    server_version=APP_NAME
+    sys_version=""
+
     def end_headers(self):
         self.send_header("X-Content-Type-Options","nosniff")
         self.send_header("X-Frame-Options","DENY")
@@ -97,9 +100,22 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.validate_local_request("GET"): return None
         with REQUEST_LOCK:
             path=urlparse(self.path).path
-            if path.startswith("/auth/"): return self.handle_auth_GET()
-            if not self.require_authentication(path,"GET"): return None
-            return self.handle_GET()
+            try:
+                if path.startswith("/auth/"): return self.handle_auth_GET()
+                if not self.require_authentication(path,"GET"): return None
+                return self.handle_GET()
+            except Exception as exc:
+                return self.send_unexpected_error(path,exc)
+
+    def send_unexpected_error(self,path,exc):
+        """Répond sans divulguer le détail potentiellement sensible de l'exception."""
+        self.log_error("Erreur interne non gérée (%s)",type(exc).__name__)
+        message="Erreur interne locale. Réessayez ou redémarrez l’application."
+        if path.startswith("/api/"): return self.send_json({"error":message},500)
+        return self.send_html(
+            "<!doctype html><html lang='fr'><meta charset='utf-8'>"
+            "<title>Erreur · Carnet Emploi 42</title><h1>Impossible d’afficher cette page</h1>"
+            f"<p>{message}</p><p><a href='/'>Revenir à l’accueil</a></p>",500)
     def handle_auth_GET(self):
         parsed=urlparse(self.path); path=parsed.path; manager=self.auth()
         try:
@@ -294,10 +310,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json({"error":"Route API introuvable"},404)
         except (ValueError,RuntimeError) as e: return self.send_json({"error":str(e)},400)
         except Exception as exc:
-            # Le détail technique peut contenir un chemin local, une réponse de
-            # fournisseur ou un secret : il ne doit jamais parvenir au navigateur.
-            self.log_error("Erreur interne non gérée (%s)",type(exc).__name__)
-            return self.send_json({"error":"Erreur interne locale. Réessayez ou redémarrez l’application."},500)
+            return self.send_unexpected_error(p if "p" in locals() else "/api/",exc)
 
 def run_server(port=8765, open_browser=True):
     url=f"http://127.0.0.1:{port}"

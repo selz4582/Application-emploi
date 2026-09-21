@@ -240,7 +240,9 @@ réponses ajoutent une politique CSP restrictive, l’interdiction d’intégrat
 et géolocalisation. Les réponses API et d’authentification ne sont jamais mises en cache.
 Une route API inconnue répond explicitement en `404`. En cas d’incident interne inattendu,
 le navigateur reçoit un message neutre : les chemins locaux, réponses de fournisseurs et
-éventuels secrets techniques ne sont jamais inclus dans la réponse HTTP.
+éventuels secrets techniques ne sont jamais inclus dans la réponse HTTP. Cette protection
+s’applique aux lectures comme aux écritures et le serveur reste disponible après l’incident.
+L’en-tête HTTP du serveur ne publie pas non plus la version locale de Python.
 
 ## Sauvegarde automatique quotidienne
 
