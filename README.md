@@ -213,6 +213,9 @@ session pendant 30 jours : il n’est donc pas nécessaire de se reconnecter à 
 **Déconnexion** détruit immédiatement ce cookie. Les données, CV et candidatures restent sur
 l’ordinateur ; Google ne reçoit que le flux de connexion standard. Si les clés Google sont
 effacées, l’application revient au mode local sans écran de connexion.
+Chaque tentative utilise également un `nonce` OpenID Connect aléatoire et à usage unique. La
+preuve d’identité renvoyée par Google est refusée si elle appartient à une autre tentative,
+même lorsque son audience et sa signature distante sont valides.
 
 ### Sécurité et récupération Google
 

@@ -36,11 +36,11 @@ class GoogleAuth:
 
     def authorization_url(self):
         if not self.enabled: raise ValueError("Google SSO n'est pas encore configuré")
-        state=secrets.token_urlsafe(32); verifier=secrets.token_urlsafe(64)
+        state=secrets.token_urlsafe(32); verifier=secrets.token_urlsafe(64); nonce=secrets.token_urlsafe(32)
         challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        self.pending[state]={"verifier":verifier,"expires":time.time()+STATE_TTL_SECONDS}
+        self.pending[state]={"verifier":verifier,"nonce":nonce,"expires":time.time()+STATE_TTL_SECONDS}
         self._prune_states()
-        query=urllib.parse.urlencode({"client_id":self.settings.value("google_client_id"),"redirect_uri":self.redirect_uri,"response_type":"code","scope":"openid email profile","state":state,"code_challenge":challenge,"code_challenge_method":"S256","prompt":"select_account"})
+        query=urllib.parse.urlencode({"client_id":self.settings.value("google_client_id"),"redirect_uri":self.redirect_uri,"response_type":"code","scope":"openid email profile","state":state,"nonce":nonce,"code_challenge":challenge,"code_challenge_method":"S256","prompt":"select_account"})
         return AUTHORIZE_URL+"?"+query
 
     def complete(self, code: str, state: str):
@@ -50,7 +50,7 @@ class GoogleAuth:
         id_token=payload.get("id_token","")
         if not id_token: raise ValueError("Google n'a pas fourni de preuve d'identité")
         identity=self._get_json(TOKENINFO_URL+"?"+urllib.parse.urlencode({"id_token":id_token}))
-        if identity.get("aud")!=self.settings.value("google_client_id") or identity.get("iss") not in {"accounts.google.com","https://accounts.google.com"}: raise ValueError("La preuve d'identité Google est invalide")
+        if identity.get("aud")!=self.settings.value("google_client_id") or identity.get("iss") not in {"accounts.google.com","https://accounts.google.com"} or not hmac.compare_digest(str(identity.get("nonce","")),pending["nonce"]): raise ValueError("La preuve d'identité Google est invalide")
         if str(identity.get("email_verified","")).lower()!="true": raise ValueError("L'adresse Google n'est pas vérifiée")
         email=str(identity.get("email","")).strip().lower()
         allowed=self.settings.value("google_allowed_email").strip().lower()
