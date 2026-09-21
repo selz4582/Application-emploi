@@ -80,6 +80,15 @@ class HttpSmokeTests(unittest.TestCase):
         body=b"{}"; connection.putrequest("POST","/api/maintenance"); connection.putheader("Content-Type","application/json"); connection.putheader("Content-Length",str(len(body))); connection.putheader("Origin","https://evil.example"); connection.endheaders(body)
         response=connection.getresponse(); self.assertEqual(response.status,403); self.assertIn("Origine",json.loads(response.read())["error"]); connection.close()
 
+    def test_unknown_api_route_is_404_and_internal_errors_do_not_leak_details(self):
+        status,error=self.post_error("/api/route-inconnue",{})
+        self.assertEqual(status,404); self.assertIn("introuvable",error["error"])
+        with patch("app.ExternalJobPageConnector.import_url",side_effect=KeyError("secret-technique")):
+            status,error=self.post_error("/api/external-offers/import",{"url":"https://example.test/offre"})
+        self.assertEqual(status,500)
+        self.assertIn("Erreur interne locale",error["error"])
+        self.assertNotIn("secret-technique",json.dumps(error))
+
     def test_statistics_route_returns_successful_json(self):
         status, body, _ = self.get("/api/statistics?period=month")
         self.assertEqual(status, 200)

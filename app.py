@@ -76,7 +76,11 @@ class Handler(SimpleHTTPRequestHandler):
     def send_file(self,path: Path,content_type="application/zip"):
         body=path.read_bytes(); self.send_response(200); self.send_header("Content-Type",content_type); self.send_header("Content-Disposition",f'attachment; filename="{path.name}"'); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def body(self):
-        length=int(self.headers.get("Content-Length","0"))
+        try:
+            length=int(self.headers.get("Content-Length","0"))
+        except (TypeError,ValueError) as exc:
+            raise ValueError("Taille de requête invalide") from exc
+        if length < 0: raise ValueError("Taille de requête invalide")
         if length > 42 * 1024 * 1024: raise ValueError("Requête trop volumineuse")
         try: data=json.loads(self.rfile.read(length) or b"{}")
         except (ValueError,json.JSONDecodeError): raise ValueError("JSON invalide")
@@ -287,9 +291,13 @@ class Handler(SimpleHTTPRequestHandler):
                 for eid,est,chosen,email in targets:
                     draft=build_email(position,candidate,est["name"],d.get("motivation","")); aid=store.execute("INSERT INTO applications(establishment_id,position,resume_id,letter,email_to,email_subject,email_body,checklist_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(eid,position,resume_id,d.get("letter",""),email,draft["subject"],draft["body"],json.dumps({"destinataire_verifie":bool(chosen),"champs_sensibles_vides":True,"validation_humaine":False}),now())); made.append(aid)
                 return self.send_json({"applications":made,"duplicate_warnings":warnings},201)
-            raise ValueError("Route inconnue")
+            return self.send_json({"error":"Route API introuvable"},404)
         except (ValueError,RuntimeError) as e: return self.send_json({"error":str(e)},400)
-        except Exception as e: return self.send_json({"error":"Erreur locale : "+str(e)},500)
+        except Exception as exc:
+            # Le détail technique peut contenir un chemin local, une réponse de
+            # fournisseur ou un secret : il ne doit jamais parvenir au navigateur.
+            self.log_error("Erreur interne non gérée (%s)",type(exc).__name__)
+            return self.send_json({"error":"Erreur interne locale. Réessayez ou redémarrez l’application."},500)
 
 def run_server(port=8765, open_browser=True):
     url=f"http://127.0.0.1:{port}"

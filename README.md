@@ -238,6 +238,9 @@ Les écritures provenant d’une origine web différente sont également refusé
 réponses ajoutent une politique CSP restrictive, l’interdiction d’intégration dans une iframe,
 `nosniff`, une politique de référent vide et la désactivation des permissions caméra, microphone
 et géolocalisation. Les réponses API et d’authentification ne sont jamais mises en cache.
+Une route API inconnue répond explicitement en `404`. En cas d’incident interne inattendu,
+le navigateur reçoit un message neutre : les chemins locaux, réponses de fournisseurs et
+éventuels secrets techniques ne sont jamais inclus dans la réponse HTTP.
 
 ## Sauvegarde automatique quotidienne
 
