@@ -414,7 +414,13 @@ class Store:
                     db.execute("INSERT INTO notifications(application_id,message,due_at,created_at) VALUES(?,?,?,?)", (app["id"], "Relance de candidature à effectuer", due.isoformat(), now())); created += 1
             cutoff = (today - timedelta(days=30)).isoformat()
             db.execute("DELETE FROM notifications WHERE created_at < ?", (cutoff,))
-            db.execute("DELETE FROM offers WHERE deleted_at IS NOT NULL AND deleted_at < ?", (cutoff,))
+            # Une offre rattachée à une candidature fait partie de l'historique :
+            # elle reste masquée, mais ne doit jamais être supprimée par la purge.
+            db.execute("""DELETE FROM offers
+                          WHERE deleted_at IS NOT NULL AND deleted_at < ?
+                          AND NOT EXISTS (
+                              SELECT 1 FROM applications a WHERE a.offer_id=offers.id
+                          )""", (cutoff,))
         return created
 
     def trash_offer(self, offer_id: int):

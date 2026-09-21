@@ -49,6 +49,9 @@ Si une candidature similaire existe déjà, aucun nouveau brouillon n'est créé
 confirmation explicite de l'utilisateur.
 Un brouillon créé par erreur peut être supprimé depuis son dossier tant qu'il n'a pas
 été marqué comme envoyé. Une candidature envoyée reste conservée dans l'historique.
+Lors du nettoyage de la corbeille, une offre ancienne n’est supprimée définitivement que si
+aucune candidature ne lui est rattachée. Une offre utilisée reste masquée mais est conservée
+afin que le dossier et les statistiques ne perdent jamais leur contexte.
 Le tableau de suivi peut être filtré par texte, statut et type de candidature. Les
 relances dont la date est dépassée sont signalées dans le tableau et le kanban, et la
 cloche ramène directement vers les notifications ou le suivi.

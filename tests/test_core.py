@@ -226,6 +226,17 @@ class DomainTests(unittest.TestCase):
         self.store.restore_offer(offer["id"]); self.assertEqual(len(self.store.dashboard()["offers"]),1)
         with self.assertRaisesRegex(ValueError,"absente"): self.store.restore_offer(offer["id"])
 
+    def test_trash_cleanup_preserves_offer_linked_to_application(self):
+        linked=self.store.create_offer({"title":"Agent","company":"Historique"})["id"]
+        unused=self.store.create_offer({"title":"Accueil","company":"À purger"})["id"]
+        application=self.store.apply_to_offer(linked)
+        old_deleted_at="2026-07-01T00:00:00+00:00"
+        self.store.execute("UPDATE offers SET deleted_at=? WHERE id IN (?,?)",(old_deleted_at,linked,unused))
+        self.store.maintain(date(2026,9,20))
+        self.assertEqual(self.store.rows("SELECT id FROM offers WHERE id=?",(unused,)),[])
+        self.assertEqual(self.store.rows("SELECT id FROM offers WHERE id=?",(linked,))[0]["id"],linked)
+        self.assertEqual(self.store.rows("SELECT offer_id FROM applications WHERE id=?",(application,))[0]["offer_id"],linked)
+
     def test_draft_requires_human_checklist_before_marking_sent(self):
         offer=self.store.create_offer({"title":"Agent","company":"Test"})
         application=self.store.apply_to_offer(offer["id"])
