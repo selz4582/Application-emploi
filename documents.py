@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import io
 import importlib
 import importlib.util
@@ -15,10 +16,13 @@ import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree
+from core import SCHEMA_VERSION
 
 ALLOWED_RESUME_EXTENSIONS = {".docx", ".odt", ".pdf"}
 MAX_RESUME_BYTES = 10 * 1024 * 1024
 MAX_BACKUP_BYTES = 30 * 1024 * 1024
+MAX_BACKUP_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_BACKUP_ENTRIES = 100
 
 
 def safe_filename(name: str) -> str:
@@ -145,12 +149,16 @@ def create_backup(store, data_dir: Path, backup_dir: Path, filename_prefix="carn
         destination.close(); source.close()
     try:
         with zipfile.ZipFile(target, "x", zipfile.ZIP_DEFLATED) as archive:
+            files={"emploi.sqlite3":{"sha256":_file_digest(snapshot),"size":snapshot.stat().st_size}}
             archive.write(snapshot, "emploi.sqlite3")
             docs = data_dir / "documents"
             if docs.exists():
                 for item in docs.iterdir():
-                    if item.is_file(): archive.write(item, f"documents/{item.name}")
-            archive.writestr("manifest.json", json.dumps({"format": 1, "created_at": _now()}, ensure_ascii=False))
+                    if item.is_file():
+                        archive_name=f"documents/{item.name}"
+                        files[archive_name]={"sha256":_file_digest(item),"size":item.stat().st_size}
+                        archive.write(item,archive_name)
+            archive.writestr("manifest.json",json.dumps({"format":2,"created_at":_now(),"schema_version":store.schema_version(),"files":files},ensure_ascii=False,indent=2))
     finally:
         snapshot.unlink(missing_ok=True)
     return target
@@ -188,11 +196,26 @@ def create_external_backup(store, data_dir: Path, external_dir: Path) -> Path:
 def verify_backup(path: Path) -> dict:
     try:
         with zipfile.ZipFile(path) as archive:
-            names = set(archive.namelist())
+            infos=archive.infolist()
+            if len(infos)>MAX_BACKUP_ENTRIES: raise ValueError("La sauvegarde contient trop de fichiers")
+            if sum(info.file_size for info in infos)>MAX_BACKUP_UNCOMPRESSED_BYTES: raise ValueError("La sauvegarde décompressée est trop volumineuse")
+            names = {info.filename for info in infos}
+            if len(names)!=len(infos): raise ValueError("La sauvegarde contient des fichiers en double")
+            for name in names:
+                candidate=Path(name)
+                if candidate.is_absolute() or ".." in candidate.parts or (name not in {"emploi.sqlite3","manifest.json"} and not name.startswith("documents/")):
+                    raise ValueError("La sauvegarde contient un chemin non autorisé")
             if not {"emploi.sqlite3", "manifest.json"}.issubset(names): raise ValueError("Sauvegarde incomplète")
             manifest = json.loads(archive.read("manifest.json"))
-            if manifest.get("format") != 1: raise ValueError("Version de sauvegarde incompatible")
+            if manifest.get("format") not in {1,2}: raise ValueError("Version de sauvegarde incompatible")
             if archive.testzip() is not None: raise ValueError("Sauvegarde endommagée")
+            if manifest.get("format")==2:
+                if int(manifest.get("schema_version",0))>SCHEMA_VERSION: raise ValueError("Cette sauvegarde provient d'une version plus récente de l'application")
+                files=manifest.get("files")
+                if not isinstance(files,dict) or set(files)!=(names-{"manifest.json"}): raise ValueError("Manifeste de sauvegarde incohérent")
+                for name,expected in files.items():
+                    if not isinstance(expected,dict) or expected.get("size")!=archive.getinfo(name).file_size or expected.get("sha256")!=hashlib.sha256(archive.read(name)).hexdigest():
+                        raise ValueError(f"Le fichier {name} ne correspond pas au manifeste")
             return manifest
     except (zipfile.BadZipFile, json.JSONDecodeError) as exc:
         raise ValueError("Fichier de sauvegarde invalide") from exc
@@ -205,7 +228,7 @@ def list_backups(backup_dir: Path) -> list[dict]:
     for path in sorted(backup_dir.glob("*.zip"), key=lambda item: item.stat().st_mtime, reverse=True):
         try:
             manifest = verify_backup(path)
-            result.append({"filename":path.name,"size":path.stat().st_size,"created_at":manifest.get("created_at"),"valid":True,"error":""})
+            result.append({"filename":path.name,"size":path.stat().st_size,"created_at":manifest.get("created_at"),"schema_version":manifest.get("schema_version"),"valid":True,"error":""})
         except ValueError as exc:
             result.append({"filename":path.name,"size":path.stat().st_size,"created_at":None,"valid":False,"error":str(exc)})
     return result
@@ -298,6 +321,13 @@ def export_path(export_dir: Path, filename: str) -> Path:
 
 def _empty_verification():
     return {key: [] for key in ("experiences", "competences", "diplomes", "formations", "langues")}
+
+
+def _file_digest(path: Path) -> str:
+    digest=hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda:stream.read(1024*1024),b""): digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _now():

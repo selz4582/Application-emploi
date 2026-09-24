@@ -114,6 +114,11 @@ ancienne est mise à niveau automatiquement et sans effacement. À l’inverse, 
 par une version plus récente de l’application est refusée afin d’éviter une corruption par
 rétrogradation. Le diagnostic signale aussi un espace libre inférieur à 100 Mo.
 
+Les nouvelles sauvegardes utilisent un manifeste version 2 qui enregistre la version du
+schéma, la taille et l’empreinte SHA-256 de la base et de chaque CV. Une archive altérée,
+surdimensionnée, contenant des chemins dangereux ou provenant d’un schéma futur est refusée
+avant toute restauration. Les anciennes archives au format 1 restent compatibles.
+
 
 ## Installation et distribution Windows
 

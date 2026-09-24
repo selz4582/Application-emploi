@@ -89,7 +89,7 @@ class DocumentTests(unittest.TestCase):
         first = create_backup(self.store, self.data, self.data / "backups")
         second = create_backup(self.store, self.data, self.data / "backups")
         self.assertTrue(first.name.startswith("carnet-emploi-42-"))
-        self.assertNotEqual(first, second); self.assertEqual(verify_backup(first)["format"], 1)
+        self.assertNotEqual(first, second); manifest=verify_backup(first); self.assertEqual(manifest["format"],2); self.assertEqual(manifest["schema_version"],self.store.schema_version()); self.assertIn("emploi.sqlite3",manifest["files"])
         with zipfile.ZipFile(first) as archive: self.assertTrue(any(x.startswith("documents/") for x in archive.namelist()))
         listed=list_backups(self.data/"backups")
         self.assertEqual(len(listed),2); self.assertTrue(all(item["valid"] for item in listed))
@@ -110,7 +110,7 @@ class DocumentTests(unittest.TestCase):
     def test_backup_can_be_copied_to_an_external_directory(self):
         external=self.data/"usb"/"archives"
         copied=create_external_backup(self.store,self.data,external)
-        self.assertEqual(copied.parent,external.resolve()); self.assertEqual(verify_backup(copied)["format"],1)
+        self.assertEqual(copied.parent,external.resolve()); self.assertEqual(verify_backup(copied)["format"],2)
         self.assertEqual(len(list_backups(self.data/"backups")),1)
 
     def test_daily_automatic_backup_is_unique_and_retains_seven_days(self):
@@ -121,7 +121,7 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(ensure_automatic_backup(self.store,self.data,backups,date(2026,9,1)),first)
         for offset in range(1,9): ensure_automatic_backup(self.store,self.data,backups,date(2026,9,1)+timedelta(days=offset))
         automatic=list(backups.glob("carnet-emploi-42-auto-*.zip"))
-        self.assertEqual(len(automatic),7); self.assertTrue(all(verify_backup(path)["format"]==1 for path in automatic))
+        self.assertEqual(len(automatic),7); self.assertTrue(all(verify_backup(path)["format"]==2 for path in automatic))
         self.assertFalse(any("20260901" in path.name for path in automatic)); self.assertTrue(any("20260909" in path.name for path in automatic))
 
     def test_restore_rejects_an_invalid_database(self):
@@ -131,6 +131,24 @@ class DocumentTests(unittest.TestCase):
             archive.writestr("emploi.sqlite3",b"not sqlite")
         with self.assertRaisesRegex(ValueError,"illisible"):
             restore_backup(self.store,self.data,self.data/"backups","bad.zip",base64.b64encode(stream.getvalue()).decode())
+
+    def test_backup_rejects_tampering_and_future_schema_but_accepts_legacy_format(self):
+        archive=create_backup(self.store,self.data,self.data/"backups")
+        with zipfile.ZipFile(archive) as source:
+            entries={name:source.read(name) for name in source.namelist()}
+        tampered=self.data/"backups"/"tampered.zip"; entries["emploi.sqlite3"]+=b"alteration"
+        with zipfile.ZipFile(tampered,"w",zipfile.ZIP_DEFLATED) as target:
+            for name,content in entries.items(): target.writestr(name,content)
+        with self.assertRaisesRegex(ValueError,"manifeste"): verify_backup(tampered)
+        manifest=json.loads(entries["manifest.json"]); manifest["schema_version"]=self.store.schema_version()+1; entries["manifest.json"]=json.dumps(manifest).encode()
+        future=self.data/"backups"/"future.zip"
+        with zipfile.ZipFile(future,"w",zipfile.ZIP_DEFLATED) as target:
+            for name,content in entries.items(): target.writestr(name,content)
+        with self.assertRaisesRegex(ValueError,"version plus récente"): verify_backup(future)
+        legacy=self.data/"backups"/"legacy.zip"
+        with zipfile.ZipFile(legacy,"w") as target:
+            target.writestr("manifest.json",json.dumps({"format":1})); target.writestr("emploi.sqlite3",b"legacy")
+        self.assertEqual(verify_backup(legacy)["format"],1)
 
     def test_csv_export_has_header(self):
         company=self.store.execute("INSERT INTO companies(name) VALUES(?)",("Entreprise Test",))
