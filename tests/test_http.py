@@ -72,6 +72,14 @@ class HttpSmokeTests(unittest.TestCase):
             self.assertEqual(status, 200, path); self.assertEqual(content_type, "application/json")
             self.assertEqual(json.loads(body), [])
 
+    def test_dashboard_reports_backup_health_and_creation_resolves_warning(self):
+        _,body,_=self.get("/api/dashboard"); self.assertEqual(json.loads(body)["backup_status"]["level"],"empty")
+        self.post("/api/profile",{"first_name":"Anne"})
+        _,body,_=self.get("/api/dashboard"); self.assertEqual(json.loads(body)["backup_status"]["level"],"missing")
+        self.post("/api/backup",{})
+        _,body,_=self.get("/api/dashboard"); status=json.loads(body)["backup_status"]
+        self.assertEqual(status["level"],"recent"); self.assertFalse(status["needed"])
+
     def test_dns_rebinding_host_and_cross_origin_posts_are_rejected(self):
         port=self.server.server_address[1]
         connection=http.client.HTTPConnection("127.0.0.1",port)

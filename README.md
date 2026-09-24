@@ -102,6 +102,9 @@ récupérer la bonne pièce jointe avant l’envoi manuel du courriel.
 L'écran **Mes CV** permet de créer une archive datée dans `data/backups` et un export
 CSV dans `data/exports`. Une archive contient un instantané cohérent de SQLite, les
 documents et un manifeste contrôlable. Les anciennes archives ne sont jamais écrasées.
+Le tableau de bord signale immédiatement l’absence de sauvegarde ou une dernière archive
+vieille de plus de sept jours. Le bouton de l’alerte crée directement une nouvelle archive ;
+l’avertissement disparaît dès que sa validité est confirmée.
 L'export CSV est téléchargé par le navigateur et contient l'entreprise, l'établissement,
 la commune, le type de candidature, les dates de suivi et la prochaine action.
 La restauration accepte uniquement une archive ZIP valide de 30 Mo maximum, contrôle

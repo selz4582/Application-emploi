@@ -12,7 +12,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from core import Store
-from documents import application_email, backup_path, create_backup, create_external_backup, decode_resume, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, extract_document_text, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_backup, verify_resume
+from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, decode_resume, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, extract_document_text, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -100,7 +100,7 @@ class DocumentTests(unittest.TestCase):
         application=self.store.execute("INSERT INTO applications(position,resume_id,email_to,email_subject,email_body,letter,created_at) VALUES(?,?,?,?,?,?,?)",("Agent",resume["id"],"recrutement@example.test","Candidature Agent","Bonjour,\nVoici ma candidature.","Ma motivation", "2026-09-24"))
         content,filename=application_email(self.store,self.data/"documents",application)
         message=BytesParser(policy=policy.default).parsebytes(content)
-        self.assertEqual(filename,f"candidature-{application}.eml"); self.assertEqual(message["To"],"recrutement@example.test"); self.assertEqual(message["Subject"],"Candidature Agent")
+        self.assertEqual(filename,f"candidature-{application}.eml"); self.assertEqual(message["X-Unsent"],"1"); self.assertEqual(message["To"],"recrutement@example.test"); self.assertEqual(message["Subject"],"Candidature Agent")
         attachments={part.get_filename():part.get_payload(decode=True) for part in message.iter_attachments()}
         self.assertIn("lettre-motivation.txt",attachments); self.assertIn("CV candidature.docx",attachments)
         self.assertEqual(attachments["CV candidature.docx"],docx_bytes())
@@ -161,6 +161,16 @@ class DocumentTests(unittest.TestCase):
         automatic=list(backups.glob("carnet-emploi-42-auto-*.zip"))
         self.assertEqual(len(automatic),7); self.assertTrue(all(verify_backup(path)["format"]==2 for path in automatic))
         self.assertFalse(any("20260901" in path.name for path in automatic)); self.assertTrue(any("20260909" in path.name for path in automatic))
+
+    def test_backup_health_distinguishes_empty_missing_recent_and_stale_data(self):
+        self.assertEqual(backup_health(self.store,self.data/"backups",date(2026,9,24))["level"],"empty")
+        self.store.upsert_profile({"first_name":"Anne"})
+        self.assertEqual(backup_health(self.store,self.data/"backups",date(2026,9,24))["level"],"missing")
+        fake=self.data/"backups"/"fake.zip"; fake.parent.mkdir(); fake.write_bytes(b"fake")
+        with patch("documents.verify_backup",return_value={"format":2,"created_at":"2026-09-22T12:00:00+00:00"}): recent=backup_health(self.store,self.data/"backups",date(2026,9,24))
+        self.assertEqual(recent["level"],"recent"); self.assertEqual(recent["age_days"],2); self.assertFalse(recent["needed"])
+        with patch("documents.verify_backup",return_value={"format":2,"created_at":"2026-09-10T12:00:00+00:00"}): stale=backup_health(self.store,self.data/"backups",date(2026,9,24))
+        self.assertEqual(stale["level"],"stale"); self.assertTrue(stale["needed"])
 
     def test_restore_rejects_an_invalid_database(self):
         stream=io.BytesIO()

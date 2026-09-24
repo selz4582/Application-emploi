@@ -7,7 +7,7 @@ import html
 from urllib.parse import urlparse, parse_qs, quote
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
-from documents import application_email, backup_path, create_backup, create_external_backup, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_resume
+from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_resume
 from settings import SettingsStore
 from auth import GoogleAuth
 
@@ -170,7 +170,8 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError as exc: return self.send_html(f"<!doctype html><html lang='fr'><meta charset='utf-8'><h1>Connexion impossible</h1><p>{html.escape(str(exc))}</p><a href='/auth/login'>Réessayer</a></html>",400)
     def handle_GET(self):
         p=urlparse(self.path)
-        if p.path=="/api/dashboard": store.maintain(); return self.send_json(store.dashboard())
+        if p.path=="/api/dashboard":
+            store.maintain(); result=store.dashboard(); result["backup_status"]=backup_health(store,DATA/"backups"); return self.send_json(result)
         if p.path=="/api/offers": return self.send_json(store.dashboard()["offers"])
         if p.path=="/api/profile":
             rows=store.rows("SELECT * FROM profile WHERE id=1"); return self.send_json(rows[0] if rows else {})

@@ -157,7 +157,7 @@ def application_email(store, documents_dir: Path, application_id: int) -> tuple[
     if not recipient or not subject or not body: raise ValueError("Renseignez le destinataire, l’objet et le message avant de télécharger le courriel")
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+",recipient): raise ValueError("L’adresse du destinataire est invalide")
     if any(character in recipient+subject for character in "\r\n"): raise ValueError("Les en-têtes du courriel contiennent un retour à la ligne interdit")
-    message=EmailMessage(); message["To"]=recipient; message["Subject"]=subject; message.set_content(body)
+    message=EmailMessage(); message["X-Unsent"]="1"; message["To"]=recipient; message["Subject"]=subject; message.set_content(body)
     letter=str(detail.get("letter") or "").strip()
     if letter: message.add_attachment(letter,subtype="plain",filename="lettre-motivation.txt")
     if detail.get("resume_id"):
@@ -262,6 +262,24 @@ def list_backups(backup_dir: Path) -> list[dict]:
         except ValueError as exc:
             result.append({"filename":path.name,"size":path.stat().st_size,"created_at":None,"valid":False,"error":str(exc)})
     return result
+
+
+def backup_health(store, backup_dir: Path, current_day=None) -> dict:
+    """Résume la fraîcheur des sauvegardes sans créer d'archive implicitement."""
+    current_day=current_day or date.today()
+    meaningful=sum(store.rows(f"SELECT count(*) total FROM {table}")[0]["total"] for table in ("profile","resumes","offers","applications"))
+    if not meaningful: return {"level":"empty","needed":False,"latest_created_at":None,"age_days":None}
+    latest=None
+    if backup_dir.exists():
+        for path in sorted(backup_dir.glob("*.zip"),key=lambda item:item.stat().st_mtime,reverse=True):
+            try: latest=verify_backup(path); break
+            except ValueError: continue
+    if not latest: return {"level":"missing","needed":True,"latest_created_at":None,"age_days":None}
+    created=latest.get("created_at")
+    try: age=max(0,(current_day-datetime.fromisoformat(created.replace("Z","+00:00")).date()).days)
+    except (AttributeError,TypeError,ValueError): age=None
+    stale=age is None or age>7
+    return {"level":"stale" if stale else "recent","needed":stale,"latest_created_at":created,"age_days":age}
 
 
 def backup_path(backup_dir: Path, filename: str) -> Path:
