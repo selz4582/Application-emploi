@@ -118,6 +118,8 @@ Les nouvelles sauvegardes utilisent un manifeste version 2 qui enregistre la ver
 schéma, la taille et l’empreinte SHA-256 de la base et de chaque CV. Une archive altérée,
 surdimensionnée, contenant des chemins dangereux ou provenant d’un schéma futur est refusée
 avant toute restauration. Les anciennes archives au format 1 restent compatibles.
+Le remplacement de SQLite est atomique : les fichiers WAL sont écartés, puis l’ancienne base
+et les anciens documents sont automatiquement remis en place si le remplacement échoue.
 
 
 ## Installation et distribution Windows

@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 import tempfile
 import unittest
 import zipfile
@@ -106,6 +107,21 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(self.store.rows("SELECT first_name FROM profile")[0]["first_name"],"Avant")
         self.assertTrue((self.data/"backups"/result["safety_backup"]).is_file())
         self.assertTrue(any((self.data/"documents").iterdir()))
+
+    def test_failed_database_swap_restores_previous_database_and_documents(self):
+        self.store.upsert_profile({"first_name":"Avant"}); self.add_resume("avant.docx")
+        archive=create_backup(self.store,self.data,self.data/"backups")
+        self.store.upsert_profile({"first_name":"Après"})
+        original_replace=os.replace
+        def fail_new_database(source,destination):
+            if Path(source).name==".restore-emploi.sqlite3": raise OSError("échec simulé")
+            return original_replace(source,destination)
+        with patch("documents.os.replace",side_effect=fail_new_database):
+            with self.assertRaisesRegex(OSError,"échec simulé"):
+                restore_backup(self.store,self.data,self.data/"backups",archive.name,base64.b64encode(archive.read_bytes()).decode())
+        self.assertEqual(self.store.rows("SELECT first_name FROM profile")[0]["first_name"],"Après")
+        self.assertTrue(any((self.data/"documents").glob("*avant.docx")))
+        self.assertFalse((self.data/".restore-emploi.sqlite3").exists())
 
     def test_backup_can_be_copied_to_an_external_directory(self):
         external=self.data/"usb"/"archives"

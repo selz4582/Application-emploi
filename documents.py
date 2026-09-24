@@ -8,6 +8,7 @@ import io
 import importlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -282,12 +283,28 @@ def restore_backup(store, data_dir: Path, backup_dir: Path, filename: str, encod
         safety = create_backup(store,data_dir,backup_dir)
         documents = data_dir / "documents"; old_documents = staging / "old-documents"
         incoming_documents = staging / "content" / "documents"
+        database=Path(store.path).resolve(); old_database=staging/"old-emploi.sqlite3"
+        replacement=database.with_name(".restore-emploi.sqlite3")
+        sidecars=[Path(str(database)+suffix) for suffix in ("-wal","-shm")]
+        old_sidecars=[]
         try:
+            shutil.copy2(restored_db,replacement)
             if documents.exists(): documents.rename(old_documents)
             if incoming_documents.exists(): shutil.copytree(incoming_documents,documents)
             else: documents.mkdir(parents=True,exist_ok=True)
-            shutil.copy2(restored_db,store.path)
+            for sidecar in sidecars:
+                if sidecar.exists():
+                    old=staging/sidecar.name; os.replace(sidecar,old); old_sidecars.append((sidecar,old))
+            os.replace(database,old_database)
+            try: os.replace(replacement,database)
+            except Exception:
+                os.replace(old_database,database)
+                raise
         except Exception:
+            replacement.unlink(missing_ok=True)
+            if old_database.exists() and not database.exists(): os.replace(old_database,database)
+            for sidecar,old in old_sidecars:
+                if old.exists(): os.replace(old,sidecar)
             shutil.rmtree(documents,ignore_errors=True)
             if old_documents.exists(): old_documents.rename(documents)
             raise
