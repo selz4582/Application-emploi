@@ -1,9 +1,9 @@
-import io, json, tempfile, unittest
+import io, json, sqlite3, tempfile, unittest
 import urllib.error
 from unittest.mock import Mock, patch
 from datetime import date
 from pathlib import Path
-from core import Store, build_email, duplicate_candidates, hidden_offer, score_offer, validate_public_contact
+from core import SCHEMA_VERSION, Store, build_email, duplicate_candidates, hidden_offer, score_offer, validate_public_contact
 from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
 
 class DomainTests(unittest.TestCase):
@@ -12,6 +12,18 @@ class DomainTests(unittest.TestCase):
     def test_schema_and_profile(self):
         self.store.upsert_profile({"first_name":"Anne","department":"42"})
         self.assertEqual(self.store.rows("SELECT first_name FROM profile")[0]["first_name"],"Anne")
+        self.assertEqual(self.store.schema_version(),SCHEMA_VERSION)
+        self.assertEqual([row["version"] for row in self.store.rows("SELECT version FROM schema_migrations ORDER BY version")],list(range(1,SCHEMA_VERSION+1)))
+    def test_old_database_is_migrated_and_future_database_is_rejected(self):
+        path=Path(self.tmp.name)/"old.db"
+        db=sqlite3.connect(path)
+        db.executescript("CREATE TABLE applications(id INTEGER PRIMARY KEY); CREATE TABLE contacts(id INTEGER PRIMARY KEY); CREATE TABLE journeys(id INTEGER PRIMARY KEY); PRAGMA user_version=1;")
+        db.close()
+        migrated=Store(path)
+        self.assertEqual(migrated.schema_version(),SCHEMA_VERSION)
+        self.assertIn("response_at",{row["name"] for row in migrated.rows("PRAGMA table_info(applications)")})
+        with migrated.connect() as db: db.execute(f"PRAGMA user_version={SCHEMA_VERSION+1}")
+        with self.assertRaisesRegex(RuntimeError,"version plus récente"): Store(path)
     def test_fixed_explainable_score(self):
         result=score_offer({"title":"Agent accueil","sector":"culture","description":"relation public équipe service"},{"positions":"agent accueil","sector":"culture"},"relation public équipe service accueil",{"outbound_minutes":35,"return_minutes":40})
         self.assertEqual(result["total"],100); self.assertEqual(sum(x["maximum"] for x in result["details"]),100)

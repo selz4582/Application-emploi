@@ -104,10 +104,15 @@ validité. Elles peuvent être téléchargées pour être conservées sur un aut
 Une archive locale valide peut aussi être restaurée directement, sans devoir la
 sélectionner de nouveau, ou supprimée après une confirmation explicite.
 Le bouton **Vérifier les données** contrôle l'intégrité de la base, l'accès en écriture,
-les liaisons entre les données, la version de Python utilisée et le nombre de sauvegardes
+les liaisons entre les données, la version du schéma, l’espace disque disponible, la version de Python utilisée et le nombre de sauvegardes
 disponibles. Les écritures HTTP sont sérialisées et SQLite attend brièvement lorsqu'une
 autre opération est en cours, ce qui évite les conflits pendant une sauvegarde ou une
 restauration.
+
+Les évolutions de la base sont numérotées et enregistrées dans `schema_migrations`. Une base
+ancienne est mise à niveau automatiquement et sans effacement. À l’inverse, une base créée
+par une version plus récente de l’application est refusée afin d’éviter une corruption par
+rétrogradation. Le diagnostic signale aussi un espace libre inférieur à 100 Mo.
 
 
 ## Installation et distribution Windows

@@ -1,7 +1,7 @@
 """Serveur HTTP local sans dépendance tierce."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-import base64, json, mimetypes, os, threading, webbrowser
+import base64, json, mimetypes, os, shutil, threading, webbrowser
 import sys
 import html
 from urllib.parse import urlparse, parse_qs
@@ -187,7 +187,9 @@ class Handler(SimpleHTTPRequestHandler):
             integrity=store.rows("PRAGMA integrity_check")[0]["integrity_check"]
             foreign_keys=store.rows("PRAGMA foreign_key_check")
             external=settings().value("external_backup_directory")
-            return self.send_json({"status":"ok" if integrity=="ok" and not foreign_keys else "error","python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"foreign_key_errors":len(foreign_keys),"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK),"external_backup_directory":external})
+            free_bytes=shutil.disk_usage(DATA).free
+            healthy=integrity=="ok" and not foreign_keys
+            return self.send_json({"status":"ok" if healthy and free_bytes>=100*1024*1024 else "warning" if healthy else "error","python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"foreign_key_errors":len(foreign_keys),"schema_version":store.schema_version(),"free_bytes":free_bytes,"low_disk_space":free_bytes<100*1024*1024,"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK),"external_backup_directory":external})
         return self.serve_static(p.path)
     def serve_static(self,path):
         rel="index.html" if path=="/" else path.lstrip("/"); static_root=STATIC_ROOT.resolve(); target=(static_root/rel).resolve()

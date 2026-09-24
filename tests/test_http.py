@@ -120,8 +120,15 @@ class HttpSmokeTests(unittest.TestCase):
         status, body, _=self.get("/api/diagnostics")
         diagnostics=json.loads(body)
         self.assertEqual(status,200); self.assertEqual(diagnostics["status"],"ok"); self.assertEqual(diagnostics["foreign_key_errors"],0); self.assertTrue(diagnostics["writable"])
+        self.assertGreaterEqual(diagnostics["schema_version"],1); self.assertGreater(diagnostics["free_bytes"],0); self.assertIsInstance(diagnostics["low_disk_space"],bool)
         status, body, _=self.get("/api/health")
         self.assertEqual(status,200); self.assertEqual(json.loads(body)["application"],"Carnet Emploi 42")
+
+    def test_diagnostics_warn_when_disk_space_is_low(self):
+        with patch("app.shutil.disk_usage",return_value=Mock(free=50*1024*1024)):
+            status,body,_=self.get("/api/diagnostics")
+        diagnostics=json.loads(body)
+        self.assertEqual(status,200); self.assertEqual(diagnostics["status"],"warning"); self.assertTrue(diagnostics["low_disk_space"])
 
     def test_configuration_status_exposes_flags_but_never_secrets(self):
         values={"FRANCE_TRAVAIL_CLIENT_ID":"client","FRANCE_TRAVAIL_CLIENT_SECRET":"tres-secret","INSEE_API_TOKEN":"jeton-secret","CARNET_EMPLOI_BACKUP_DIR":"/media/usb"}

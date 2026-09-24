@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS journeys(offer_id INTEGER PRIMARY KEY REFERENCES offe
 CREATE TABLE IF NOT EXISTS applications(id INTEGER PRIMARY KEY, offer_id INTEGER REFERENCES offers(id), establishment_id INTEGER REFERENCES establishments(id), position TEXT NOT NULL, resume_id INTEGER REFERENCES resumes(id), letter TEXT DEFAULT '', email_to TEXT DEFAULT '', email_subject TEXT DEFAULT '', email_body TEXT DEFAULT '', checklist_json TEXT DEFAULT '{}', status TEXT DEFAULT 'Candidature préparée', sent_at TEXT, response_at TEXT, expected_reply TEXT, followup_at TEXT, next_action TEXT DEFAULT '', created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY, application_id INTEGER REFERENCES applications(id), message TEXT NOT NULL, due_at TEXT, read_at TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS learnings(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, value TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 """
+SCHEMA_VERSION = 3
 
 def now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -44,14 +46,31 @@ class Store:
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(SCHEMA)
-            columns = {row[1] for row in db.execute("PRAGMA table_info(applications)")}
-            for name, definition in (("response_at", "TEXT"), ("expected_reply", "TEXT"), ("followup_at", "TEXT"), ("next_action", "TEXT DEFAULT ''")):
-                if name not in columns: db.execute(f"ALTER TABLE applications ADD COLUMN {name} {definition}")
-            contact_columns = {row[1] for row in db.execute("PRAGMA table_info(contacts)")}
-            if "active" not in contact_columns: db.execute("ALTER TABLE contacts ADD COLUMN active INTEGER DEFAULT 1")
-            journey_columns = {row[1] for row in db.execute("PRAGMA table_info(journeys)")}
-            for name, definition in (("checked_at","TEXT"),("source","TEXT DEFAULT 'Saisie manuelle'")):
-                if name not in journey_columns: db.execute(f"ALTER TABLE journeys ADD COLUMN {name} {definition}")
+            self._migrate(db)
+
+    @staticmethod
+    def _add_columns(db, table, definitions):
+        columns={row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        for name,definition in definitions:
+            if name not in columns: db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+    def _migrate(self, db):
+        """Applique dans l'ordre les migrations idempotentes des anciennes installations."""
+        current=int(db.execute("PRAGMA user_version").fetchone()[0])
+        if current > SCHEMA_VERSION:
+            raise RuntimeError("Cette base provient d'une version plus récente de Carnet Emploi 42")
+        migrations={
+            1: lambda: None,
+            2: lambda: (self._add_columns(db,"applications",(("response_at","TEXT"),("expected_reply","TEXT"),("followup_at","TEXT"),("next_action","TEXT DEFAULT ''"))),self._add_columns(db,"contacts",(("active","INTEGER DEFAULT 1"),))),
+            3: lambda: self._add_columns(db,"journeys",(("checked_at","TEXT"),("source","TEXT DEFAULT 'Saisie manuelle'"))),
+        }
+        for version in range(current+1,SCHEMA_VERSION+1):
+            migrations[version]()
+            db.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(?,?)",(version,now()))
+            db.execute(f"PRAGMA user_version={version}")
+
+    def schema_version(self):
+        with self.connect() as db: return int(db.execute("PRAGMA user_version").fetchone()[0])
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=5, factory=ClosingConnection)
