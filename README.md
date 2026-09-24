@@ -121,6 +121,14 @@ avant toute restauration. Les anciennes archives au format 1 restent compatibles
 Le remplacement de SQLite est atomique : les fichiers WAL sont écartés, puis l’ancienne base
 et les anciens documents sont automatiquement remis en place si le remplacement échoue.
 
+En cas d’erreur interne, l’application affiche un identifiant d’incident et conserve dans
+`data/logs` un journal local limité et automatiquement renouvelé. Ce journal n’enregistre ni
+le message technique de l’exception, ni coordonnées, ni contenu de candidature. Le bouton
+**Télécharger le rapport technique** produit un fichier JSON partageable contenant seulement
+l’intégrité et la version de la base, des compteurs, l’état booléen des services, les
+sauvegardes et les identifiants d’incidents récents. Les clés API, chemins locaux, CV et
+données personnelles en sont exclus.
+
 
 ## Installation et distribution Windows
 

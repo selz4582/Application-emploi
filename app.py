@@ -1,7 +1,7 @@
 """Serveur HTTP local sans dépendance tierce."""
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-import base64, json, mimetypes, os, shutil, threading, webbrowser
+import base64, json, mimetypes, os, platform, secrets, shutil, threading, webbrowser
 import sys
 import html
 from urllib.parse import urlparse, parse_qs
@@ -17,6 +17,7 @@ BUNDLE_ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).parent))
 APP_DIR=Path(sys.executable).parent if getattr(sys,"frozen",False) else Path(__file__).parent
 DEFAULT_DATA=(Path(os.getenv("LOCALAPPDATA",APP_DIR))/APP_NAME/"data") if getattr(sys,"frozen",False) else APP_DIR/"data"
 STATIC_ROOT=BUNDLE_ROOT/"static"; DATA=Path(os.getenv("CARNET_EMPLOI_DATA_DIR",DEFAULT_DATA)); store=Store(DATA/"emploi.sqlite3"); REQUEST_LOCK=threading.RLock()
+INCIDENT_LOG_LIMIT=512*1024
 
 def settings(): return SettingsStore(DATA/"configuration.json")
 AUTH_MANAGERS={}
@@ -24,6 +25,34 @@ def auth_manager(port):
     key=(str(DATA.resolve()),int(port))
     if key not in AUTH_MANAGERS: AUTH_MANAGERS[key]=GoogleAuth(settings(),DATA,f"http://127.0.0.1:{port}")
     return AUTH_MANAGERS[key]
+
+def record_incident(path,exc,method="HTTP"):
+    """Journalise seulement des métadonnées non sensibles et retourne un identifiant court."""
+    incident=secrets.token_hex(6); logs=DATA/"logs"; target=logs/"incidents.jsonl"
+    try:
+        logs.mkdir(parents=True,exist_ok=True)
+        if target.exists() and target.stat().st_size>=INCIDENT_LOG_LIMIT:
+            rotated=logs/"incidents.1.jsonl"; rotated.unlink(missing_ok=True); target.replace(rotated)
+        entry={"incident":incident,"created_at":now(),"method":method,"path":urlparse(path).path,"error_type":type(exc).__name__}
+        with target.open("a",encoding="utf-8") as stream: stream.write(json.dumps(entry,ensure_ascii=False)+"\n")
+    except OSError: pass
+    return incident
+
+def support_report():
+    """Produit un diagnostic partageable sans chemins locaux, coordonnées ni secrets."""
+    integrity=store.rows("PRAGMA integrity_check")[0]["integrity_check"]
+    foreign_keys=len(store.rows("PRAGMA foreign_key_check"))
+    counts={table:store.rows(f"SELECT count(*) total FROM {table}")[0]["total"] for table in ("offers","applications","resumes","establishments","contacts")}
+    backups=list_backups(DATA/"backups")
+    status=settings().status()
+    incidents=[]; log=DATA/"logs"/"incidents.jsonl"
+    if log.is_file():
+        for line in log.read_text(encoding="utf-8",errors="replace").splitlines()[-50:]:
+            try:
+                item=json.loads(line)
+                incidents.append({key:item.get(key) for key in ("incident","created_at","method","path","error_type")})
+            except json.JSONDecodeError: continue
+    return {"application":APP_NAME,"generated_at":now(),"system":{"platform":platform.system(),"release":platform.release(),"python":sys.version.split()[0]},"database":{"integrity":integrity,"foreign_key_errors":foreign_keys,"schema_version":store.schema_version(),"counts":counts},"backups":{"total":len(backups),"valid":sum(bool(item["valid"]) for item in backups),"latest_created_at":next((item.get("created_at") for item in backups if item["valid"]),None)},"services":{key:bool(status.get(key)) for key in ("france_travail","insee","external_backup","google_sso")},"recent_incidents":incidents}
 
 class Handler(SimpleHTTPRequestHandler):
     server_version=APP_NAME
@@ -78,6 +107,8 @@ class Handler(SimpleHTTPRequestHandler):
         return False
     def send_file(self,path: Path,content_type="application/zip"):
         body=path.read_bytes(); self.send_response(200); self.send_header("Content-Type",content_type); self.send_header("Content-Disposition",f'attachment; filename="{path.name}"'); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+    def send_json_download(self,obj,filename):
+        body=json.dumps(obj,ensure_ascii=False,indent=2).encode(); self.send_response(200); self.send_header("Content-Type","application/json; charset=utf-8"); self.send_header("Content-Disposition",f'attachment; filename="{filename}"'); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def body(self):
         try:
             length=int(self.headers.get("Content-Length","0"))
@@ -109,13 +140,14 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_unexpected_error(self,path,exc):
         """Répond sans divulguer le détail potentiellement sensible de l'exception."""
-        self.log_error("Erreur interne non gérée (%s)",type(exc).__name__)
+        incident=record_incident(path,exc,getattr(self,"command","HTTP"))
+        self.log_error("Erreur interne non gérée (%s, incident %s)",type(exc).__name__,incident)
         message="Erreur interne locale. Réessayez ou redémarrez l’application."
-        if path.startswith("/api/"): return self.send_json({"error":message},500)
+        if path.startswith("/api/"): return self.send_json({"error":message,"incident":incident},500)
         return self.send_html(
             "<!doctype html><html lang='fr'><meta charset='utf-8'>"
             "<title>Erreur · Carnet Emploi 42</title><h1>Impossible d’afficher cette page</h1>"
-            f"<p>{message}</p><p><a href='/'>Revenir à l’accueil</a></p>",500)
+            f"<p>{message}</p><p>Incident : {incident}</p><p><a href='/'>Revenir à l’accueil</a></p>",500)
     def handle_auth_GET(self):
         parsed=urlparse(self.path); path=parsed.path; manager=self.auth()
         try:
@@ -190,6 +222,7 @@ class Handler(SimpleHTTPRequestHandler):
             free_bytes=shutil.disk_usage(DATA).free
             healthy=integrity=="ok" and not foreign_keys
             return self.send_json({"status":"ok" if healthy and free_bytes>=100*1024*1024 else "warning" if healthy else "error","python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"foreign_key_errors":len(foreign_keys),"schema_version":store.schema_version(),"free_bytes":free_bytes,"low_disk_space":free_bytes<100*1024*1024,"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK),"external_backup_directory":external})
+        if p.path=="/api/diagnostics/report": return self.send_json_download(support_report(),"carnet-emploi-42-diagnostic.json")
         return self.serve_static(p.path)
     def serve_static(self,path):
         rel="index.html" if path=="/" else path.lstrip("/"); static_root=STATIC_ROOT.resolve(); target=(static_root/rel).resolve()

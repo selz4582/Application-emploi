@@ -102,8 +102,36 @@ class HttpSmokeTests(unittest.TestCase):
                 error.close()
         self.assertIn("Erreur interne locale",payload["error"])
         self.assertNotIn("chemin-et-secret",json.dumps(payload))
+        self.assertRegex(payload["incident"],r"^[0-9a-f]{12}$")
+        incident_log=(app.DATA/"logs"/"incidents.jsonl").read_text(encoding="utf-8")
+        self.assertIn(payload["incident"],incident_log); self.assertIn("RuntimeError",incident_log)
+        self.assertNotIn("chemin-et-secret",incident_log)
         status,body,_=self.get("/api/health")
         self.assertEqual(status,200); self.assertEqual(json.loads(body)["status"],"ok")
+
+    def test_support_report_is_downloadable_and_excludes_paths_and_secrets(self):
+        app.store.create_offer({"title":"Agent","company":"Entreprise privée"})
+        app.settings().update({"france_travail_client_id":"identifiant-secret","france_travail_client_secret":"secret-absolu","external_backup_directory":"/chemin/prive"})
+        app.record_incident("/api/offers?token=ne-pas-garder",RuntimeError("message-ultra-secret"),"GET")
+        with urllib.request.urlopen(self.base+"/api/diagnostics/report") as response:
+            body=response.read(); headers=response.headers; payload=json.loads(body)
+        self.assertEqual(headers.get_content_type(),"application/json"); self.assertIn("attachment",headers["Content-Disposition"])
+        self.assertEqual(payload["database"]["counts"]["offers"],1); self.assertTrue(payload["services"]["france_travail"])
+        serialized=json.dumps(payload,ensure_ascii=False)
+        for secret in ("identifiant-secret","secret-absolu","/chemin/prive","message-ultra-secret","ne-pas-garder",str(app.DATA)):
+            self.assertNotIn(secret,serialized)
+        self.assertEqual(payload["recent_incidents"][-1]["path"],"/api/offers")
+
+    def test_incident_log_is_rotated_and_never_blocks_error_handling(self):
+        with patch.object(app,"INCIDENT_LOG_LIMIT",1):
+            first=app.record_incident("/api/one",ValueError("secret-one"),"POST")
+            second=app.record_incident("/api/two",RuntimeError("secret-two"),"GET")
+        logs=app.DATA/"logs"
+        self.assertIn(first,(logs/"incidents.1.jsonl").read_text(encoding="utf-8"))
+        current=(logs/"incidents.jsonl").read_text(encoding="utf-8")
+        self.assertIn(second,current); self.assertNotIn("secret-two",current)
+        with patch("pathlib.Path.mkdir",side_effect=OSError("disque indisponible")):
+            self.assertRegex(app.record_incident("/api/failure",OSError("secret")),r"^[0-9a-f]{12}$")
 
     def test_statistics_route_returns_successful_json(self):
         status, body, _ = self.get("/api/statistics?period=month")
