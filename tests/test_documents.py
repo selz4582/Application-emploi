@@ -12,7 +12,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from core import Store
-from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, decode_resume, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, extract_document_text, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_backup, verify_resume
+from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, decode_resume, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_data_json, export_path, extract_document_text, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_backup, verify_resume
 
 
 def docx_bytes(text="Accueil relation usagers"):
@@ -208,3 +208,17 @@ class DocumentTests(unittest.TestCase):
         self.assertIn("Entreprise Test,,Roanne,Offre",content); self.assertIn("Relire",content)
         self.assertEqual(export_path(self.data/"exports",path.name),path)
         with self.assertRaisesRegex(ValueError,"invalide"): export_path(self.data/"exports","../candidatures.csv")
+
+    def test_portable_json_export_decodes_fields_and_omits_storage_paths(self):
+        self.store.upsert_profile({"first_name":"Anne","email":"anne@example.test"})
+        resume=self.add_resume("CV Anne.docx")
+        verify_resume(self.store,resume["id"],{"competences":["Accueil"]})
+        path=export_data_json(self.store,self.data/"exports"/"donnees.json")
+        payload=json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["format"],"carnet-emploi-42-portable-v1")
+        self.assertEqual(payload["schema_version"],self.store.schema_version())
+        self.assertEqual(payload["tables"]["profile"][0]["first_name"],"Anne")
+        resume=payload["tables"]["resumes"][0]
+        self.assertNotIn("path",resume); self.assertNotIn("verified_json",resume)
+        self.assertEqual(resume["verified"]["competences"],["Accueil"])
+        self.assertEqual(export_path(self.data/"exports",path.name),path)

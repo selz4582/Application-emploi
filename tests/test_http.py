@@ -200,6 +200,16 @@ class HttpSmokeTests(unittest.TestCase):
         status,body,content_type=self.get("/api/exports/download?name="+created["filename"])
         self.assertEqual(status,200); self.assertEqual(content_type,"text/csv"); self.assertIn(b"position",body)
 
+    def test_portable_json_export_can_be_downloaded_without_secrets(self):
+        app.store.upsert_profile({"first_name":"Anne","email":"anne@example.test"})
+        app.settings().update({"insee_api_token":"secret-ne-jamais-exporter"})
+        status,created=self.post("/api/export/json",{})
+        self.assertEqual(status,200); self.assertTrue(created["filename"].endswith(".json"))
+        status,body,content_type=self.get("/api/exports/download?name="+created["filename"])
+        self.assertEqual(status,200); self.assertEqual(content_type,"application/json")
+        payload=json.loads(body); self.assertEqual(payload["tables"]["profile"][0]["first_name"],"Anne")
+        self.assertNotIn("secret-ne-jamais-exporter",body.decode()); self.assertNotIn("configuration",payload)
+
     def test_resume_can_be_downloaded_without_exposing_its_storage_name(self):
         documents=app.DATA/"documents"; documents.mkdir()
         content=b"PK\x03\x04document-test"; stored=documents/"cv-1-storage-name.docx"; stored.write_bytes(content)

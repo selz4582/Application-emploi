@@ -7,7 +7,7 @@ import html
 from urllib.parse import urlparse, parse_qs, quote
 from core import STATUSES, Store, build_email, duplicate_candidates, now
 from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneConnector
-from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_path, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_resume
+from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_data_json, export_path, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_resume
 from settings import SettingsStore
 from auth import GoogleAuth
 
@@ -219,7 +219,10 @@ class Handler(SimpleHTTPRequestHandler):
             try: return self.send_file(backup_path(DATA/"backups",parse_qs(p.query).get("name",[""])[0]))
             except ValueError as e: return self.send_json({"error":str(e)},404)
         if p.path=="/api/exports/download":
-            try: return self.send_file(export_path(DATA/"exports",parse_qs(p.query).get("name",[""])[0]),"text/csv; charset=utf-8")
+            try:
+                path=export_path(DATA/"exports",parse_qs(p.query).get("name",[""])[0])
+                content_type="application/json; charset=utf-8" if path.suffix.lower()==".json" else "text/csv; charset=utf-8"
+                return self.send_file(path,content_type)
             except ValueError as e: return self.send_json({"error":str(e)},404)
         if p.path=="/api/health":
             store.rows("SELECT 1"); return self.send_json({"status":"ok","application":APP_NAME})
@@ -298,6 +301,9 @@ class Handler(SimpleHTTPRequestHandler):
                 delete_backup(DATA/"backups",str(d.get("filename",""))); return self.send_json({"ok":True})
             if p=="/api/export/csv":
                 path=export_applications_csv(store,DATA/"exports"/f"candidatures-{now()[:10]}.csv"); return self.send_json({"filename":path.name,"path":str(path)})
+            if p=="/api/export/json":
+                stamp=now().replace("-","").replace(":","").replace("+","-")
+                path=export_data_json(store,DATA/"exports"/f"carnet-emploi-42-{stamp}.json"); return self.send_json({"filename":path.name})
             if p.startswith("/api/offers/") and p.endswith("/trash"):
                 store.trash_offer(int(p.split("/")[3])); return self.send_json({"ok":True})
             if p.startswith("/api/offers/") and p.endswith("/restore"):

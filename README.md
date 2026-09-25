@@ -107,6 +107,10 @@ vieille de plus de sept jours. Le bouton de l’alerte crée directement une nou
 l’avertissement disparaît dès que sa validité est confirmée.
 L'export CSV est téléchargé par le navigateur et contient l'entreprise, l'établissement,
 la commune, le type de candidature, les dates de suivi et la prochaine action.
+Un second export JSON portable rassemble toutes les données métier dans un format lisible
+indépendamment de l'application. Il transforme les champs JSON internes en objets structurés
+et exclut les clés API, le secret Google ainsi que les chemins de stockage des CV. Ce fichier
+contient néanmoins des données personnelles : conservez-le sur un support protégé.
 La restauration accepte uniquement une archive ZIP valide de 30 Mo maximum, contrôle
 son manifeste, ses chemins et l'intégrité de SQLite, puis crée automatiquement une
 sauvegarde de sécurité des données actuelles avant leur remplacement.

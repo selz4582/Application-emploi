@@ -373,9 +373,54 @@ def export_applications_csv(store, destination: Path) -> Path:
     return destination
 
 
+PORTABLE_EXPORT_TABLES = (
+    "profile", "resumes", "companies", "establishments", "contacts",
+    "offers", "offer_sources", "scores", "journeys", "applications",
+    "notifications", "learnings", "schema_migrations",
+)
+PORTABLE_JSON_FIELDS = {
+    "resumes": {"verified_json": "verified"},
+    "scores": {"details_json": "details"},
+    "applications": {"checklist_json": "checklist"},
+}
+PORTABLE_EXPORT_ORDER = {"scores": "offer_id", "journeys": "offer_id", "schema_migrations": "version"}
+
+
+def export_data_json(store, destination: Path) -> Path:
+    """Exporte les données métier dans un JSON lisible, sans secrets ni chemins locaux."""
+    tables = {}
+    for table in PORTABLE_EXPORT_TABLES:
+        order = PORTABLE_EXPORT_ORDER.get(table, "id")
+        rows = store.rows(f"SELECT * FROM {table} ORDER BY {order}")
+        cleaned = []
+        for row in rows:
+            item = dict(row)
+            if table == "resumes":
+                item.pop("path", None)
+            for encoded, decoded in PORTABLE_JSON_FIELDS.get(table, {}).items():
+                raw = item.pop(encoded, None)
+                try:
+                    item[decoded] = json.loads(raw) if raw else None
+                except (TypeError, json.JSONDecodeError):
+                    item[decoded] = None
+            cleaned.append(item)
+        tables[table] = cleaned
+    payload = {
+        "format": "carnet-emploi-42-portable-v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "schema_version": store.schema_version(),
+        "tables": tables,
+    }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, destination)
+    return destination
+
+
 def export_path(export_dir: Path, filename: str) -> Path:
-    """Retourne uniquement un export CSV créé dans le répertoire prévu."""
-    if Path(filename).name != filename or Path(filename).suffix.lower() != ".csv": raise ValueError("Nom d'export invalide")
+    """Retourne uniquement un export CSV ou JSON créé dans le répertoire prévu."""
+    if Path(filename).name != filename or Path(filename).suffix.lower() not in {".csv", ".json"}: raise ValueError("Nom d'export invalide")
     root=export_dir.resolve(); path=(root/filename).resolve()
     try: path.relative_to(root)
     except ValueError as exc: raise ValueError("Chemin d'export invalide") from exc
