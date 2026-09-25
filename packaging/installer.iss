@@ -1,0 +1,33 @@
+#define AppName "Carnet Emploi 42"
+#include "version.iss"
+#define AppExeName "CarnetEmploi42.exe"
+
+[Setup]
+AppId={{5E8D9A0E-3153-4938-A99C-56C34DD00942}
+AppName={#AppName}
+AppVersion={#AppVersion}
+DefaultDirName={autopf}\Carnet Emploi 42
+DefaultGroupName={#AppName}
+OutputDir=..\dist
+OutputBaseFilename=Carnet-Emploi-42-Installation
+Compression=lzma2
+SolidCompression=yes
+PrivilegesRequired=lowest
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+WizardStyle=modern
+
+[Files]
+Source: "..\dist\CarnetEmploi42.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\desactiver-google-sso.bat"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\Désactiver Google SSO (récupération)"; Filename: "{app}\desactiver-google-sso.bat"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDescription: "Raccourcis :"
+
+[Run]
+Filename: "{app}\{#AppExeName}"; Description: "Lancer {#AppName}"; Flags: nowait postinstall skipifsilent

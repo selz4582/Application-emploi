@@ -2,3 +2,8 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
+build/
+dist/
+*.spec.bak
+packaging/version.iss
+packaging/version_info.txt
