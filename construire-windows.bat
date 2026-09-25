@@ -9,6 +9,7 @@ if not %errorlevel%==0 (
   exit /b 1
 )
 py -3 -m pip install --upgrade -r requirements-dev.txt || goto :error
+py -3 build_version.py || goto :error
 py -3 -m PyInstaller --noconfirm --clean packaging\carnet-emploi-42.spec || goto :error
 echo.
 echo Executable cree : dist\CarnetEmploi42.exe

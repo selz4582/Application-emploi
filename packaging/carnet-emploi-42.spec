@@ -26,5 +26,6 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
+    version=str(project / "packaging" / "version_info.txt"),
     disable_windowed_traceback=False,
 )

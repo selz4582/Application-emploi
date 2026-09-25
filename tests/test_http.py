@@ -10,6 +10,7 @@ from pathlib import Path
 
 import app
 from core import Store
+from version import APP_VERSION
 
 
 class HttpSmokeTests(unittest.TestCase):
@@ -124,7 +125,7 @@ class HttpSmokeTests(unittest.TestCase):
         with urllib.request.urlopen(self.base+"/api/diagnostics/report") as response:
             body=response.read(); headers=response.headers; payload=json.loads(body)
         self.assertEqual(headers.get_content_type(),"application/json"); self.assertIn("attachment",headers["Content-Disposition"])
-        self.assertEqual(payload["database"]["counts"]["offers"],1); self.assertTrue(payload["services"]["france_travail"])
+        self.assertEqual(payload["application_version"],APP_VERSION); self.assertEqual(payload["database"]["counts"]["offers"],1); self.assertTrue(payload["services"]["france_travail"])
         serialized=json.dumps(payload,ensure_ascii=False)
         for secret in ("identifiant-secret","secret-absolu","/chemin/prive","message-ultra-secret","ne-pas-garder",str(app.DATA)):
             self.assertNotIn(secret,serialized)
@@ -156,9 +157,10 @@ class HttpSmokeTests(unittest.TestCase):
         status, body, _=self.get("/api/diagnostics")
         diagnostics=json.loads(body)
         self.assertEqual(status,200); self.assertEqual(diagnostics["status"],"ok"); self.assertEqual(diagnostics["foreign_key_errors"],0); self.assertTrue(diagnostics["writable"])
+        self.assertEqual(diagnostics["application_version"],APP_VERSION)
         self.assertGreaterEqual(diagnostics["schema_version"],1); self.assertGreater(diagnostics["free_bytes"],0); self.assertIsInstance(diagnostics["low_disk_space"],bool)
         status, body, _=self.get("/api/health")
-        self.assertEqual(status,200); self.assertEqual(json.loads(body)["application"],"Carnet Emploi 42")
+        self.assertEqual(status,200); self.assertEqual(json.loads(body)["application"],"Carnet Emploi 42"); self.assertEqual(json.loads(body)["version"],APP_VERSION)
 
     def test_diagnostics_warn_when_disk_space_is_low(self):
         with patch("app.shutil.disk_usage",return_value=Mock(free=50*1024*1024)):

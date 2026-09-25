@@ -10,6 +10,7 @@ from connectors import ExternalJobPageConnector, FranceTravailConnector, SireneC
 from documents import application_email, backup_health, backup_path, create_backup, create_external_backup, delete_backup, delete_resume, ensure_automatic_backup, export_applications_csv, export_data_json, export_path, list_backups, restore_backup, resume_path, save_resume, set_preferred_resume, verify_resume
 from settings import SettingsStore
 from auth import GoogleAuth
+from version import APP_VERSION
 
 APP_NAME="Carnet Emploi 42"
 BROWSER_OPEN_DELAY=10
@@ -52,7 +53,7 @@ def support_report():
                 item=json.loads(line)
                 incidents.append({key:item.get(key) for key in ("incident","created_at","method","path","error_type")})
             except json.JSONDecodeError: continue
-    return {"application":APP_NAME,"generated_at":now(),"system":{"platform":platform.system(),"release":platform.release(),"python":sys.version.split()[0]},"database":{"integrity":integrity,"foreign_key_errors":foreign_keys,"schema_version":store.schema_version(),"counts":counts},"backups":{"total":len(backups),"valid":sum(bool(item["valid"]) for item in backups),"latest_created_at":next((item.get("created_at") for item in backups if item["valid"]),None)},"services":{key:bool(status.get(key)) for key in ("france_travail","insee","external_backup","google_sso")},"recent_incidents":incidents}
+    return {"application":APP_NAME,"application_version":APP_VERSION,"generated_at":now(),"system":{"platform":platform.system(),"release":platform.release(),"python":sys.version.split()[0]},"database":{"integrity":integrity,"foreign_key_errors":foreign_keys,"schema_version":store.schema_version(),"counts":counts},"backups":{"total":len(backups),"valid":sum(bool(item["valid"]) for item in backups),"latest_created_at":next((item.get("created_at") for item in backups if item["valid"]),None)},"services":{key:bool(status.get(key)) for key in ("france_travail","insee","external_backup","google_sso")},"recent_incidents":incidents}
 
 class Handler(SimpleHTTPRequestHandler):
     server_version=APP_NAME
@@ -225,7 +226,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_file(path,content_type)
             except ValueError as e: return self.send_json({"error":str(e)},404)
         if p.path=="/api/health":
-            store.rows("SELECT 1"); return self.send_json({"status":"ok","application":APP_NAME})
+            store.rows("SELECT 1"); return self.send_json({"status":"ok","application":APP_NAME,"version":APP_VERSION})
         if p.path=="/api/configuration/status":
             status=settings().status()
             if self.auth().enabled and not self.identity(): return self.send_json({"google_sso":True})
@@ -236,7 +237,7 @@ class Handler(SimpleHTTPRequestHandler):
             external=settings().value("external_backup_directory")
             free_bytes=shutil.disk_usage(DATA).free
             healthy=integrity=="ok" and not foreign_keys
-            return self.send_json({"status":"ok" if healthy and free_bytes>=100*1024*1024 else "warning" if healthy else "error","python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"foreign_key_errors":len(foreign_keys),"schema_version":store.schema_version(),"free_bytes":free_bytes,"low_disk_space":free_bytes<100*1024*1024,"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK),"external_backup_directory":external})
+            return self.send_json({"status":"ok" if healthy and free_bytes>=100*1024*1024 else "warning" if healthy else "error","application_version":APP_VERSION,"python":sys.version.split()[0],"database":str(Path(store.path).resolve()),"data_directory":str(DATA.resolve()),"integrity":integrity,"foreign_key_errors":len(foreign_keys),"schema_version":store.schema_version(),"free_bytes":free_bytes,"low_disk_space":free_bytes<100*1024*1024,"backups":len(list_backups(DATA/"backups")),"writable":os.access(DATA,os.W_OK),"external_backup_directory":external})
         if p.path=="/api/diagnostics/report": return self.send_json_download(support_report(),"carnet-emploi-42-diagnostic.json")
         return self.serve_static(p.path)
     def serve_static(self,path):
@@ -371,7 +372,7 @@ def run_server(port=8765, open_browser=True):
     except OSError as exc:
         raise RuntimeError(f"Impossible de démarrer sur le port {port}. Fermez l'autre fenêtre {APP_NAME} puis réessayez.") from exc
     print("="*58)
-    print(f" {APP_NAME} est démarré correctement")
+    print(f" {APP_NAME} {APP_VERSION} est démarré correctement")
     print(f" Ouvrez : {url}")
     if open_browser: print(f" Le navigateur s'ouvrira automatiquement dans {BROWSER_OPEN_DELAY} secondes.")
     print(" Les codes HTTP 200 signifient que tout fonctionne.")
@@ -383,6 +384,9 @@ def run_server(port=8765, open_browser=True):
     finally: server.server_close()
 
 if __name__=="__main__":
+    if "--version" in sys.argv:
+        print(f"{APP_NAME} {APP_VERSION}")
+        raise SystemExit(0)
     if "--disable-google-sso" in sys.argv:
         settings().clear(["google_client_id","google_client_secret","google_allowed_email"])
         print("Google SSO est désactivé. Relancez Carnet Emploi 42 normalement.")

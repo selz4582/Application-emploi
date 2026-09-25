@@ -5,3 +5,5 @@ __pycache__/
 build/
 dist/
 *.spec.bak
+packaging/version.iss
+packaging/version_info.txt

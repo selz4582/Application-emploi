@@ -1,5 +1,5 @@
 #define AppName "Carnet Emploi 42"
-#define AppVersion "1.0.0"
+#include "version.iss"
 #define AppExeName "CarnetEmploi42.exe"
 
 [Setup]

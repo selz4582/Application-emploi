@@ -163,6 +163,14 @@ installée, les données utilisateur restent séparées de l’exécutable dans
 `%LOCALAPPDATA%\Carnet Emploi 42\data`, afin qu’une mise à jour ne les écrase pas. La
 variable `CARNET_EMPLOI_DATA_DIR` permet de choisir un autre emplacement.
 
+La version publiée est définie une seule fois dans `version.py`. Le script de construction
+génère automatiquement à partir de cette valeur la version de l’installateur Inno Setup et
+les propriétés Windows de l’exécutable. La même valeur est exposée par le contrôle de santé
+et incluse dans le rapport technique, ce qui évite des numéros contradictoires lors d’une
+mise à jour ou d’une demande d’assistance.
+La commande `CarnetEmploi42.exe --version` (ou `python app.py --version` depuis les
+sources) permet également de vérifier la version installée sans démarrer le serveur.
+
 ## Tests navigateur
 
 Les parcours Playwright vérifient la navigation réelle et la création d’une offre :
